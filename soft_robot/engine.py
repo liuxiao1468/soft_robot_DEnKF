@@ -47,8 +47,8 @@ class Engine():
                 ensemble = state_ensemble
                 state = state_pre
             else:
-                ensemble = final_ensemble
-                state = final_est
+                ensemble = ensemble
+                state = state
             input_state = (ensemble, state)
             output = self.model(obs, input_state)
 
