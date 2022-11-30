@@ -52,13 +52,13 @@ class Engine():
             input_state = (ensemble, state)
             output = self.model(obs, input_state)
 
-            final_ensemble = output[0] # -> ensemble estimation
-            final_est = output[1] # -> final estimation
-            obs_est = output[3] # -> learned observation
+            ensemble = output[0] # -> ensemble estimation
+            state = output[1] # -> final estimation
+            obs_p = output[3] # -> learned observation
 
-            final_ensemble = final_ensemble.cpu().detach().numpy()
-            final_est = final_est.cpu().detach().numpy()
-            obs_est = obs_est.cpu().detach().numpy()
+            final_ensemble = ensemble.cpu().detach().numpy()
+            final_est = state.cpu().detach().numpy()
+            obs_est = obs_p.cpu().detach().numpy()
 
             data_save.append(final_est)
             ensemble_save.append(final_ensemble)
