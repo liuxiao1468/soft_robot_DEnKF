@@ -45,16 +45,16 @@ Use the docker logs to copy the tensorboard link to a browser
 ```docker logs -f $CONTAINER_NAME-tensorboard```
  
 #### without Docker
+
 If you don't want to use the docker container for training, you may directly use the
-train.py scripts and pass in the config file.
+train.py scripts and pass in the config file. Make sure to have corresponding libraries and
+dependencies installed on your local machine. Plase refer to `requirement.txt` and `Dockerfile` 
+for those required packages.
 
 Go to `./soft_robot` and then
 
 Run `python train.py --config tensegrity_1.0.yaml`
 
-#### Run jupyter notebook
-Run `./run_notebook.sh` check the logs of 
-`$CONTAINER_NAME-notebook` for the URL to paste into the browser. 
 
 ## Models
 ### DEnKF
@@ -67,6 +67,7 @@ Ask IKemoto-san for the dataset.
 
 
 ## Results
+TBD
 
 
 ## Model Zoo
