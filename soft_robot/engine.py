@@ -116,7 +116,6 @@ class Engine():
         while epoch < self.args.train.num_epochs:
             step = 0
             for state_gt, state_pre, obs, state_ensemble in dataloader:
-                step += 1
                 # define the training curriculum
                 optimizer_.zero_grad()
                 before_op_time = time.time()
@@ -159,7 +158,7 @@ class Engine():
                     self.writer.add_scalar('transition model', loss_2.cpu().item(), self.global_step)
                     self.writer.add_scalar('sensor_model', loss_3.cpu().item(), self.global_step)
                     self.writer.add_scalar('observation_model', loss_3.cpu().item(), self.global_step)
-                    self.writer.add_scalar('learning_rate', current_lr, self.global_step)
+                    # self.writer.add_scalar('learning_rate', current_lr, self.global_step)
 
                 # Save a model based of a chosen save frequency
                 if (self.global_step!=0 and self.global_step % self.args.train.save_freq == 0):
@@ -178,6 +177,7 @@ class Engine():
                     self.model.eval()
                     self.test()
                     self.model.train()
+                step += 1
 
                 self.global_step += 1
                 if scheduler is not None:
