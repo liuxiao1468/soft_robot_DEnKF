@@ -44,10 +44,10 @@ Use the docker logs to copy the tensorboard link to a browser
 
 ```docker logs -f $CONTAINER_NAME-tensorboard```
  
-#### without Docker
+#### Without Docker
 
 If you don't want to use the docker container for training, you may directly use the
-train.py scripts and pass in the config file. Make sure to have corresponding libraries and
+`train.py` script and pass in the config file. Make sure to have corresponding libraries and
 dependencies installed on your local machine. Plase refer to `requirement.txt` and `Dockerfile` 
 for those required packages.
 
