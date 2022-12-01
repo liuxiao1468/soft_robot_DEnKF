@@ -32,7 +32,6 @@ class Engine():
         # Load the pretrained model
         # checkpoint = torch.load(self.args.test.checkpoint_path)
         # self.model.load_state_dict(checkpoint['model'])
-        self.model.eval()
         test_dataset = tensegrityDataset(self.args, 'test')
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size = 1,
                                     shuffle=False, num_workers=1)
@@ -43,32 +42,33 @@ class Engine():
         gt_save = []
         obs_save = []
         for state_gt, state_pre, obs, state_ensemble in test_dataloader:
-            if step == 0:
-                ensemble = state_ensemble
-                state = state_pre
-            else:
-                ensemble = ensemble
-                state = state
-            input_state = (ensemble, state)
-            output = self.model(obs, input_state)
+            with torch.no_grad():
+                if step == 0:
+                    ensemble = state_ensemble
+                    state = state_pre
+                else:
+                    ensemble = ensemble
+                    state = state
+                input_state = (ensemble, state)
+                output = self.model(obs, input_state)
 
-            ensemble = output[0] # -> ensemble estimation
-            state = output[1] # -> final estimation
-            obs_p = output[3] # -> learned observation
+                ensemble = output[0] # -> ensemble estimation
+                state = output[1] # -> final estimation
+                obs_p = output[3] # -> learned observation
 
-            final_ensemble = ensemble # -> make sure these variables are tensor
-            final_est = state
-            obs_est = obs_p
+                final_ensemble = ensemble # -> make sure these variables are tensor
+                final_est = state
+                obs_est = obs_p
 
-            final_ensemble = final_ensemble.cpu().detach().numpy()
-            final_est = final_est.cpu().detach().numpy()
-            obs_est = obs_est.cpu().detach().numpy()
+                final_ensemble = final_ensemble.cpu().detach().numpy()
+                final_est = final_est.cpu().detach().numpy()
+                obs_est = obs_est.cpu().detach().numpy()
 
-            data_save.append(final_est)
-            ensemble_save.append(final_ensemble)
-            gt_save.append(state_gt)
-            obs_save.append(obs_est)
-            step = step + 1
+                data_save.append(final_est)
+                ensemble_save.append(final_ensemble)
+                gt_save.append(state_gt)
+                obs_save.append(obs_est)
+                step = step + 1
 
         data['state'] = data_save
         data['ensemble'] = ensemble_save

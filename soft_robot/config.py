@@ -53,7 +53,7 @@ cfg.train.use_right = False  # randomly use right images when train on KITTI
 
 # Online eval
 cfg.train.eval_freq = 10000  # Online evaluation frequency in global steps
-cfg.train.eval_summary_directory = './experiments/eval/'  # output directory for eval summary
+cfg.train.eval_summary_directory = './experiments/'  # output directory for eval summary
 cfg.train.steps_per_alpha_update = 100
 
 # Testing
