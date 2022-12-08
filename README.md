@@ -34,7 +34,7 @@ mode:
 
 Run the training and test script using the bash file `./run_filter.sh $CONFIG_FILE` 
 where `$CONFIG_FILE` is the path to the config file. e.g. 
-`./run_filter.sh tensegrity_1.0.yaml`
+`./run_filter.sh ./config/tensegrity_xx.yaml`
 
 View the logs with `docker logs -f $CONTAINER_NAME`
 
@@ -53,7 +53,7 @@ for those required packages.
 
 Go to `./soft_robot` and then
 
-Run `python train.py --config tensegrity_1.0.yaml`
+Run `python train.py --config ./config/tensegrity_xx.yaml`
 
 
 ## Models
