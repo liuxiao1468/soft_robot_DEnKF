@@ -11,13 +11,16 @@ from  torch.distributions.multivariate_normal import MultivariateNormal
 import pdb
 
 class transform:
-    def __init__(self):
+    def __init__(self, args):
         super(transform, self).__init__()
-        parameters = pickle.load(open('./dataset/parameter_4.pkl', 'rb'))
+        self.args = args
+        parameters = pickle.load(open(self.args.mode.parameter_path, 'rb'))
         self.state_m = parameters['state_m']
         self.state_std = parameters['state_std']
         self.obs_m = parameters['obs_m']
         self.obs_std = parameters['obs_std']
+        self.action_m = parameters['action_m']
+        self.action_std = parameters['action_std']
 
     def state_transform(self, state):
         '''
@@ -33,6 +36,13 @@ class transform:
         obs = (obs - self.obs_m)/self.obs_std
         return obs
 
+    def action_transform(self, action):
+        '''
+        action -> [num_ensemble, dim_a]
+        '''
+        action = (action - self.action_m)/self.action_std
+        return action
+
     def state_inv_transform(self, state):
         '''
         state -> [num_ensemble, dim_x]
@@ -46,6 +56,13 @@ class transform:
         '''
         obs = (obs * self.obs_std) + self.obs_m 
         return obs
+
+    def action_inv_transform(self, action):
+        '''
+        action -> [num_ensemble, dim_a]
+        '''
+        action = (action * self.action_std) + self.action_m 
+        return action
 
 class utils:
     def __init__(self, num_ensemble, dim_x, dim_z):
@@ -83,7 +100,7 @@ class tensegrityDataset(Dataset):
         self.dim_x = self.args.train.dim_x
         self.dim_z = self.args.train.dim_z
         self.dim_a = self.args.train.dim_a
-        self.transform_ = transform()
+        self.transform_ = transform(self.args)
         self.utils_ = utils(self.num_ensemble, self.args.train.dim_x, self.args.train.dim_z)
 
     # Length of the Dataset
@@ -96,19 +113,23 @@ class tensegrityDataset(Dataset):
         state_gt = torch.tensor(self.dataset['state_gt'][idx], dtype=torch.float32)
         state_pre = torch.tensor(self.dataset['state_pre'][idx], dtype=torch.float32)
         obs = torch.tensor(self.dataset['obs'][idx], dtype=torch.float32)
+        action = torch.tensor(self.dataset['action'][idx], dtype=torch.float32)
 
         state_gt = rearrange(state_gt, '(k dim) -> k dim', k=1)
         state_pre = rearrange(state_pre, '(k dim) -> k dim', k=1)
         obs = rearrange(obs, '(k dim) -> k dim', k=1)
+        action = rearrange(action, '(k dim) -> k dim', k=1)
 
         # apply the transformation
         state_gt = self.transform_.state_transform(state_gt).to(dtype=torch.float32)
         state_pre = self.transform_.state_transform(state_pre).to(dtype=torch.float32)
         obs = self.transform_.obs_transform(obs).to(dtype=torch.float32)
-
+        action = self.transform_.action_transform(action).to(dtype=torch.float32)
+        action = repeat(action, 'k dim -> n k dim', n = self.num_ensemble)
+        action = rearrange(action, 'n k dim -> (n k) dim')
         state_ensemble = self.utils_.format_state(state_pre)
 
-        return state_gt, state_pre, obs, state_ensemble
+        return state_gt, state_pre, obs, action, state_ensemble
 
 
 ############ only for testing ############

@@ -41,6 +41,65 @@ class ProcessModel(nn.Module):
         state = rearrange(state, '(bs k) dim -> bs k dim', bs = batch_size, k = self.num_ensemble)
         return state
 
+class ProcessModelAction(nn.Module):
+    '''
+    process model takes a state or a stack of states (t-n:t-1) and 
+    predict the next state t. this process model takes in the state and actions
+    and outputs a predicted state 
+
+    input -> [batch_size, num_ensemble, dim_x]
+    action -> [batch_size, num_ensemble, dim_a]
+    output ->  [batch_size, num_ensemble, dim_x]
+    '''
+    def __init__(self, num_ensemble, dim_x, dim_a):
+        super(ProcessModelAction, self).__init__()
+        self.num_ensemble = num_ensemble
+        self.dim_x = dim_x
+        self.dim_a = dim_a
+
+        # channel for state variables
+        self.bayes1 = LinearFlipout(in_features=self.dim_x,out_features=64)
+        self.bayes2 = LinearFlipout(in_features=64,out_features=128)
+        self.bayes3 = LinearFlipout(in_features=128,out_features=64)
+
+        # channel for action variables
+        self.bayes_a1 = LinearFlipout(in_features=self.dim_a,out_features=64)
+        self.bayes_a2 = LinearFlipout(in_features=64,out_features=128)
+        self.bayes_a3 = LinearFlipout(in_features=128,out_features=64)
+
+        # merge them
+        self.bayes4 = LinearFlipout(in_features=128,out_features=64)
+        self.bayes5 = LinearFlipout(in_features=64,out_features=self.dim_x)
+
+    def forward(self, last_state, action):
+        batch_size = last_state.shape[0]
+        last_state = rearrange(last_state, 'bs k dim -> (bs k) dim', bs = batch_size, k = self.num_ensemble)
+        action = rearrange(action, 'bs k dim -> (bs k) dim', bs = batch_size, k = self.num_ensemble)
+
+        # branch for the state variables
+        x, _ = self.bayes1(last_state)
+        x = F.relu(x)
+        x, _ = self.bayes2(x)
+        x = F.relu(x)
+        x, _ = self.bayes3(x)
+        x = F.relu(x)
+
+        # branch for the action variables
+        y, _ = self.bayes_a1(action)
+        y = F.relu(y)
+        y, _ = self.bayes_a2(y)
+        y = F.relu(y)
+        y, _ = self.bayes_a3(y)
+        y = F.relu(y)
+
+        # merge branch
+        merge = torch.cat((x, y), axis = 1)
+        merge, _ = self.bayes4(merge)
+        update, _ = self.bayes5(merge)
+        state = last_state + update
+        state = rearrange(state, '(bs k) dim -> bs k dim', bs = batch_size, k = self.num_ensemble)
+        return state
+
 class ObservationModel(nn.Module):
     '''
     observation model takes a predicted state at t-1 and 
@@ -137,36 +196,100 @@ class ObservationNoise(nn.Module):
         self.fc2 = nn.Linear(32, self.dim_z)
 
     def forward(self, inputs):
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         batch_size = inputs.shape[0]
         constant = np.ones(self.dim_z)* 1e-3
         init = np.sqrt(np.square(self.r_diag) - constant)
         diag = self.fc1(inputs)
         diag = F.relu(diag)
         diag = self.fc2(diag)
-        diag = torch.square(diag + torch.Tensor(constant)) + torch.Tensor(init)
+        diag = torch.square(diag + torch.Tensor(constant).to(device)) + torch.Tensor(init).to(device)
         diag = rearrange(diag, 'bs k dim -> (bs k) dim')
         R = torch.diag_embed(diag)
         return R
 
 class Ensemble_KF_low(nn.Module):
-    def __init__(self, num_ensemble, dim_x, dim_z):
+    def __init__(self, num_ensemble, dim_x, dim_z, dim_a):
         super(Ensemble_KF_low, self).__init__()
         self.num_ensemble = num_ensemble
         self.dim_x = dim_x
         self.dim_z = dim_z
+        self.dim_a = dim_a
         self.r_diag = np.ones((self.dim_z)).astype(np.float32) * 0.05
         self.r_diag = self.r_diag.astype(np.float32)
 
         # instantiate model
-        self.process_model = ProcessModel(self.num_ensemble, self.dim_x)
+        # self.process_model = ProcessModel(self.num_ensemble, self.dim_x)
+        self.process_model = ProcessModelAction(self.num_ensemble, self.dim_x, self.dim_a)
         self.observation_model = ObservationModel(self.num_ensemble, self.dim_x, self.dim_z)
         self.observation_noise = ObservationNoise(self.dim_z, self.r_diag)
         self.sensor_model = BayesianSensorModel(self.num_ensemble, self.dim_z)
 
     def forward(self, inputs, states):
         # decompose inputs and states
-        batch_size = inputs.shape[0]
-        raw_obs = inputs
+        batch_size = inputs[0].shape[0]
+        action, raw_obs = inputs
+        state_old, m_state = states
+
+        ##### prediction step #####
+        state_pred = self.process_model(state_old, action)
+        m_A = torch.mean(state_pred, axis = 1)
+        mean_A = repeat(m_A, 'bs dim -> bs k dim', k = self.num_ensemble)
+        A = state_pred - mean_A
+        A = rearrange(A, 'bs k dim -> bs dim k')
+        
+        ##### update step #####
+        H_X = self.observation_model(state_pred)
+        mean = torch.mean(H_X, axis = 1)
+        H_X_mean = rearrange(mean, 'bs (k dim) -> bs k dim', k=1)
+        m = repeat(mean, 'bs dim -> bs k dim', k = self.num_ensemble)
+        H_A = H_X - m
+        # transpose operation
+        H_XT = rearrange(H_X, 'bs k dim -> bs dim k')
+        H_AT = rearrange(H_A, 'bs k dim -> bs dim k')
+
+        # get learned observation
+        ensemble_z, z, encoding = self.sensor_model(raw_obs)
+        y = rearrange(ensemble_z, 'bs k dim -> bs dim k')
+        R = self.observation_noise(encoding)
+
+        # measurement update
+        innovation = (1/(self.num_ensemble -1)) * torch.matmul(H_AT, H_A) + R
+        inv_innovation = torch.linalg.inv(innovation)
+        K = (1/(self.num_ensemble -1)) * torch.matmul( torch.matmul(A, H_A), inv_innovation)
+        gain = rearrange(torch.matmul(K, y - H_XT ), 'bs dim k -> bs k dim')
+        state_new = state_pred + gain
+
+        # gather output
+        m_state_new = torch.mean(state_new, axis = 1)
+        m_state_new = rearrange(m_state_new, 'bs (k dim) -> bs k dim', k=1)
+        m_state_pred = rearrange(m_A, 'bs (k dim) -> bs k dim', k=1)
+        output = (state_new.to(dtype=torch.float32), m_state_new.to(dtype=torch.float32), 
+            m_state_pred.to(dtype=torch.float32), z.to(dtype=torch.float32), 
+            ensemble_z.to(dtype=torch.float32), H_X_mean.to(dtype=torch.float32))
+        return output
+
+class Ensemble_KF_no_action(nn.Module):
+    def __init__(self, num_ensemble, dim_x, dim_z, dim_a):
+        super(Ensemble_KF_no_action, self).__init__()
+        self.num_ensemble = num_ensemble
+        self.dim_x = dim_x
+        self.dim_z = dim_z
+        self.dim_a = dim_a
+        self.r_diag = np.ones((self.dim_z)).astype(np.float32) * 0.05
+        self.r_diag = self.r_diag.astype(np.float32)
+
+        # instantiate model
+        self.process_model = ProcessModel(self.num_ensemble, self.dim_x)
+        # self.process_model = ProcessModelAction(self.num_ensemble, self.dim_x, self.dim_a)
+        self.observation_model = ObservationModel(self.num_ensemble, self.dim_x, self.dim_z)
+        self.observation_noise = ObservationNoise(self.dim_z, self.r_diag)
+        self.sensor_model = BayesianSensorModel(self.num_ensemble, self.dim_z)
+
+    def forward(self, inputs, states):
+        # decompose inputs and states
+        batch_size = inputs[0].shape[0]
+        action, raw_obs = inputs
         state_old, m_state = states
 
         ##### prediction step #####

@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from dataset import tensegrityDataset
 from model import Ensemble_KF_low
+from model import Ensemble_KF_no_action
 from optimizer import build_optimizer
 from optimizer import build_lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
@@ -19,14 +20,17 @@ class Engine():
         self.batch_size = self.args.train.batch_size
         self.dim_x = self.args.train.dim_x
         self.dim_z = self.args.train.dim_z
+        self.dim_a = self.args.train.dim_a
         self.num_ensemble = self.args.train.num_ensemble
         self.global_step = 0
         self.mode = self.args.mode.mode
         self.dataset = tensegrityDataset(self.args, self.mode)
-        self.model = Ensemble_KF_low(self.num_ensemble, self.dim_x, self.dim_z)
+        self.model = Ensemble_KF_no_action(self.num_ensemble, self.dim_x, self.dim_z, self.dim_a)
         # Check model type
         if not isinstance(self.model, nn.Module):
             raise TypeError("model must be an instance of nn.Module")
+        self.model.cuda()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def test(self):
         # Load the pretrained model
@@ -41,7 +45,12 @@ class Engine():
         ensemble_save = []
         gt_save = []
         obs_save = []
-        for state_gt, state_pre, obs, state_ensemble in test_dataloader:
+        for state_gt, state_pre, obs, action, state_ensemble in test_dataloader:
+            state_gt = state_gt.to(self.device)
+            state_pre = state_pre.to(self.device)
+            obs = obs.to(self.device)
+            action = action.to(self.device)
+            state_ensemble = state_ensemble.to(self.device)
             with torch.no_grad():
                 if step == 0:
                     ensemble = state_ensemble
@@ -50,7 +59,8 @@ class Engine():
                     ensemble = ensemble
                     state = state
                 input_state = (ensemble, state)
-                output = self.model(obs, input_state)
+                obs_action = (action, obs)
+                output = self.model(obs_action, input_state)
 
                 ensemble = output[0] # -> ensemble estimation
                 state = output[1] # -> final estimation
@@ -63,6 +73,7 @@ class Engine():
                 final_ensemble = final_ensemble.cpu().detach().numpy()
                 final_est = final_est.cpu().detach().numpy()
                 obs_est = obs_est.cpu().detach().numpy()
+                state_gt = state_gt.cpu().detach().numpy()
 
                 data_save.append(final_est)
                 ensemble_save.append(final_ensemble)
@@ -115,14 +126,20 @@ class Engine():
 
         while epoch < self.args.train.num_epochs:
             step = 0
-            for state_gt, state_pre, obs, state_ensemble in dataloader:
+            for state_gt, state_pre, obs, action, state_ensemble in dataloader:
+                state_gt = state_gt.to(self.device)
+                state_pre = state_pre.to(self.device)
+                obs = obs.to(self.device)
+                action = action.to(self.device)
+                state_ensemble = state_ensemble.to(self.device)
                 # define the training curriculum
                 optimizer_.zero_grad()
                 before_op_time = time.time()
 
                 # forward pass
                 input_state = (state_ensemble, state_pre)
-                output = self.model(obs, input_state)
+                obs_action = (action, obs)
+                output = self.model(obs_action, input_state)
 
                 final_est = output[1] # -> final estimation
                 inter_est = output[2] # -> state transition output

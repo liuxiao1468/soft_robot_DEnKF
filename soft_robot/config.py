@@ -18,6 +18,7 @@ cfg.train = CN()
 cfg.train.seed = 0
 
 # Dataset
+cfg.mode.parameter_path = None
 cfg.train.input_size = None
 cfg.train.dataset = None  # dataset to train on
 cfg.train.data_path = None
