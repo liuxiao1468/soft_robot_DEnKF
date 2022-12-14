@@ -25,12 +25,13 @@ class Engine():
         self.global_step = 0
         self.mode = self.args.mode.mode
         self.dataset = tensegrityDataset(self.args, self.mode)
-        self.model = Ensemble_KF_no_action(self.num_ensemble, self.dim_x, self.dim_z, self.dim_a)
+        self.model = Ensemble_KF_low(self.num_ensemble, self.dim_x, self.dim_z, self.dim_a)
         # Check model type
         if not isinstance(self.model, nn.Module):
             raise TypeError("model must be an instance of nn.Module")
-        self.model.cuda()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            self.model.cuda()
 
     def test(self):
         # Load the pretrained model
@@ -88,7 +89,7 @@ class Engine():
 
         save_path = os.path.join(self.args.train.eval_summary_directory,
             self.args.train.model_name,
-            'result-{}.pkl'.format(self.global_step))
+            'eval-result-{}.pkl'.format(self.global_step))
 
         with open(save_path, 'wb') as f:
             pickle.dump(data, f)
@@ -146,15 +147,17 @@ class Engine():
                 obs_est = output[3] # -> learned observation
                 hx = output[5] # -> observation output
 
-
                 # calculate loss
                 loss_1 = mse_criterion(final_est, state_gt)
                 loss_2 = mse_criterion(inter_est, state_gt)
                 loss_3 = mse_criterion(obs_est, state_gt)
                 loss_4 = mse_criterion(hx, state_gt)
-                final_loss = loss_1 + loss_2 + loss_3 + loss_4
-                
 
+                if epoch <= 400:
+                    final_loss = loss_3
+                else:
+                    final_loss = loss_1 + loss_2 + loss_3 + loss_4
+                
                 # back prop
                 final_loss.backward()
                 optimizer_.step()
@@ -174,7 +177,7 @@ class Engine():
                     self.writer.add_scalar('end_to_end_loss', final_loss.cpu().item(), self.global_step)
                     self.writer.add_scalar('transition model', loss_2.cpu().item(), self.global_step)
                     self.writer.add_scalar('sensor_model', loss_3.cpu().item(), self.global_step)
-                    self.writer.add_scalar('observation_model', loss_3.cpu().item(), self.global_step)
+                    self.writer.add_scalar('observation_model', loss_4.cpu().item(), self.global_step)
                     # self.writer.add_scalar('learning_rate', current_lr, self.global_step)
 
                 # Save a model based of a chosen save frequency
@@ -186,22 +189,99 @@ class Engine():
                                os.path.join(self.args.train.log_directory,
                                             self.args.train.model_name,
                                             'model-{}'.format(self.global_step)))
-                # online evaluation
-                if (self.args.mode.do_online_eval 
-                    and self.global_step != 0
-                    and self.global_step % self.args.train.eval_freq == 0):
-                    time.sleep(0.1)
-                    self.model.eval()
-                    self.test()
-                    self.model.train()
                 step += 1
-
                 self.global_step += 1
                 if scheduler is not None:
                     scheduler.step(self.global_step)
 
+            # online evaluation
+            if (self.args.mode.do_online_eval 
+                and self.global_step != 0
+                and epoch+1 >= 400
+                and (epoch+1) % self.args.train.eval_freq == 0):
+                time.sleep(0.1)
+                self.model.eval()
+                self.test()
+                self.model.train()
+
             # Update epoch
             epoch += 1
+    
+    def online_test(self):
+        # Load the pretrained model
+        if torch.cuda.is_available():
+            checkpoint = torch.load(self.args.test.checkpoint_path)
+            self.model.load_state_dict(checkpoint['model'])
+        else:
+            checkpoint = torch.load(self.args.test.checkpoint_path, map_location=torch.device('cpu'))
+            self.model.load_state_dict(checkpoint['model'])
+        self.model.eval()
+
+        test_dataset = tensegrityDataset(self.args, 'test')
+        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size = 1,
+                                    shuffle=False, num_workers=1)
+        step = 0
+        data = {}
+        data_save = []
+        ensemble_save = []
+        gt_save = []
+        obs_save = []
+        for state_gt, state_pre, obs, action, state_ensemble in test_dataloader:
+            state_gt = state_gt.to(self.device)
+            state_pre = state_pre.to(self.device)
+            obs = obs.to(self.device)
+            action = action.to(self.device)
+            state_ensemble = state_ensemble.to(self.device)
+            with torch.no_grad():
+                if step == 0:
+                    ensemble = state_ensemble
+                    state = state_pre
+                else:
+                    ensemble = ensemble
+                    state = state
+                input_state = (ensemble, state)
+                obs_action = (action, obs)
+                output = self.model(obs_action, input_state)
+
+                ensemble = output[0] # -> ensemble estimation
+                state = output[1] # -> final estimation
+                obs_p = output[3] # -> learned observation
+                if step%10 == 0:
+                    print('===============')
+                    print(state)
+                    print(obs_p)
+                    print(state_gt)
+                    print(output[2])
+
+                final_ensemble = ensemble # -> make sure these variables are tensor
+                final_est = state
+                obs_est = obs_p
+
+                final_ensemble = final_ensemble.cpu().detach().numpy()
+                final_est = final_est.cpu().detach().numpy()
+                obs_est = obs_est.cpu().detach().numpy()
+                state_gt = state_gt.cpu().detach().numpy()
+
+                data_save.append(final_est)
+                ensemble_save.append(final_ensemble)
+                gt_save.append(state_gt)
+                obs_save.append(obs_est)
+                step = step + 1
+
+        data['state'] = data_save
+        data['ensemble'] = ensemble_save
+        data['gt'] = gt_save
+        data['observation'] = obs_save
+
+        save_path = os.path.join(self.args.train.eval_summary_directory,
+            self.args.train.model_name,
+            'test-result-{}.pkl'.format(self.global_step))
+
+        with open(save_path, 'wb') as f:
+            pickle.dump(data, f)
+
+
+
 
 
 

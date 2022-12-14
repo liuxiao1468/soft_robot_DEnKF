@@ -154,8 +154,10 @@ class BayesianSensorModel(nn.Module):
 
         self.fc1 = nn.Linear(30, 128)
         self.fc2 = nn.Linear(128, 128)
-        self.fc3 = LinearFlipout(128, 64)
-        self.fc4 = LinearFlipout(64, self.dim_z)
+        self.fc3 = LinearFlipout(128, 256)
+        self.fc4 = LinearFlipout(256, 512)
+        self.fc5 = LinearFlipout(512, 64)
+        self.fc6 = LinearFlipout(64, self.dim_z)
     
     def forward(self, x):
         batch_size = x.shape[0]
@@ -168,8 +170,12 @@ class BayesianSensorModel(nn.Module):
         x = F.leaky_relu(x)
         x, _ = self.fc3(x)
         x = F.leaky_relu(x)
+        x, _ = self.fc4(x)
+        x = F.leaky_relu(x)
+        x, _ = self.fc5(x)
+        x = F.leaky_relu(x)
         encoding = x
-        obs, _ = self.fc4(x)
+        obs, _ = self.fc6(x)
         obs = rearrange(obs, '(bs k) dim -> bs k dim', bs = batch_size, k = self.num_ensemble)
         obs_z = torch.mean(obs, axis = 1)
         obs_z = rearrange(obs_z, 'bs (k dim) -> bs k dim', k=1)
@@ -276,7 +282,7 @@ class Ensemble_KF_no_action(nn.Module):
         self.dim_x = dim_x
         self.dim_z = dim_z
         self.dim_a = dim_a
-        self.r_diag = np.ones((self.dim_z)).astype(np.float32) * 0.05
+        self.r_diag = np.ones((self.dim_z)).astype(np.float32) * 0.1
         self.r_diag = self.r_diag.astype(np.float32)
 
         # instantiate model
