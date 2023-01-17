@@ -5,6 +5,7 @@ from bayesian_torch.layers.flipout_layers.linear_flipout import LinearFlipout
 import torchvision.models as models
 from einops import rearrange, repeat
 import numpy as np
+import math
 import pdb
 
 class ProcessModel(nn.Module):
@@ -23,9 +24,9 @@ class ProcessModel(nn.Module):
         self.dim_x = dim_x
 
         self.bayes1 = LinearFlipout(in_features=self.dim_x,out_features=64)
-        self.bayes2 = LinearFlipout(in_features=64,out_features=128)
-        self.bayes3 = LinearFlipout(in_features=128,out_features=64)
-        self.bayes4 = LinearFlipout(in_features=64,out_features=self.dim_x)
+        self.bayes2 = LinearFlipout(in_features=64,out_features=512)
+        self.bayes3 = LinearFlipout(in_features=512,out_features=256)
+        self.bayes4 = LinearFlipout(in_features=256,out_features=self.dim_x)
 
     def forward(self, last_state):
         batch_size = last_state.shape[0]
@@ -137,6 +138,29 @@ class ObservationModel(nn.Module):
         z_pred = rearrange(z_pred, '(bs k) dim -> bs k dim', bs = batch_size, k = self.num_ensemble)
         return z_pred
 
+
+class MCLayer(nn.Module):
+    """ Custom Linear layer but mimics a standard linear layer """
+    def __init__(self, size_in, size_out):
+        super().__init__()
+        self.size_in, self.size_out = size_in, size_out
+        weights = torch.Tensor(size_out, size_in)
+        self.weights = nn.Parameter(weights)  # nn.Parameter is a Tensor that's a module parameter.
+        bias = torch.Tensor(size_out)
+        self.bias = nn.Parameter(bias)
+
+        # initialize weights and biases
+        nn.init.kaiming_uniform_(self.weights, a=math.sqrt(5)) # weight init
+        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weights)
+        bound = 1 / math.sqrt(fan_in)
+        nn.init.uniform_(self.bias, -bound, bound)  # bias init
+
+    def forward(self, x, mask):
+        tmp = self.weights * mask.t()
+        w_times_x= torch.mm(x, tmp.t())
+        return torch.add(w_times_x, self.bias)  # w times x + b
+
+
 class BayesianSensorModel(nn.Module):
     '''
     the sensor model takes the current raw sensor (usually high-dimensional images)
@@ -152,19 +176,20 @@ class BayesianSensorModel(nn.Module):
         self.dim_z = dim_z
         self.num_ensemble = num_ensemble
 
-        self.fc1 = nn.Linear(30, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = LinearFlipout(128, 256)
-        self.fc4 = LinearFlipout(256, 512)
-        self.fc5 = LinearFlipout(512, 64)
+        self.mc_layer = MCLayer(30, 128)
+        self.fc2 = nn.Linear(128, 512)
+        self.fc3 = LinearFlipout(512, 1024)
+        self.fc4 = LinearFlipout(1024, 2048)
+        self.fc5 = LinearFlipout(2048, 64)
         self.fc6 = LinearFlipout(64, self.dim_z)
     
-    def forward(self, x):
+    def forward(self, x, mask):
         batch_size = x.shape[0]
         x = rearrange(x, 'bs k dim -> (bs k) dim')
         x = repeat(x, 'bs dim -> bs k dim', k = self.num_ensemble)
         x = rearrange(x, 'bs k dim -> (bs k) dim')
-        x = self.fc1(x)
+
+        x = self.mc_layer(x, mask)
         x = F.leaky_relu(x)
         x = self.fc2(x)
         x = F.leaky_relu(x)
@@ -231,7 +256,7 @@ class Ensemble_KF_low(nn.Module):
         self.observation_noise = ObservationNoise(self.dim_z, self.r_diag)
         self.sensor_model = BayesianSensorModel(self.num_ensemble, self.dim_z)
 
-    def forward(self, inputs, states):
+    def forward(self, inputs, states, mask):
         # decompose inputs and states
         batch_size = inputs[0].shape[0]
         action, raw_obs = inputs
@@ -255,7 +280,7 @@ class Ensemble_KF_low(nn.Module):
         H_AT = rearrange(H_A, 'bs k dim -> bs dim k')
 
         # get learned observation
-        ensemble_z, z, encoding = self.sensor_model(raw_obs)
+        ensemble_z, z, encoding = self.sensor_model(raw_obs, mask)
         y = rearrange(ensemble_z, 'bs k dim -> bs dim k')
         R = self.observation_noise(encoding)
 
@@ -292,7 +317,7 @@ class Ensemble_KF_no_action(nn.Module):
         self.observation_noise = ObservationNoise(self.dim_z, self.r_diag)
         self.sensor_model = BayesianSensorModel(self.num_ensemble, self.dim_z)
 
-    def forward(self, inputs, states):
+    def forward(self, inputs, states, mask):
         # decompose inputs and states
         batch_size = inputs[0].shape[0]
         action, raw_obs = inputs
@@ -316,7 +341,7 @@ class Ensemble_KF_no_action(nn.Module):
         H_AT = rearrange(H_A, 'bs k dim -> bs dim k')
 
         # get learned observation
-        ensemble_z, z, encoding = self.sensor_model(raw_obs)
+        ensemble_z, z, encoding = self.sensor_model(raw_obs, mask)
         y = rearrange(ensemble_z, 'bs k dim -> bs dim k')
         R = self.observation_noise(encoding)
 

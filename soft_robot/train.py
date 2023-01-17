@@ -49,7 +49,10 @@ def main():
 
     ####### start the training #######
     train_engine = engine.Engine(args = cfg, logger=logger)
-    train_engine.train()
+    if cfg.mode.mode == 'train':
+        train_engine.train()
+    if cfg.mode.mode == 'test':
+        train_engine.online_test()
 
 if __name__ == "__main__":
     main()

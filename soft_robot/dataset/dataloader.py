@@ -8,7 +8,9 @@ import pickle
 import torch
 from einops import rearrange, repeat
 from  torch.distributions.multivariate_normal import MultivariateNormal
+import math
 import pdb
+
 
 class transform:
     def __init__(self, args):
@@ -77,11 +79,29 @@ class utils:
     def format_state(self, state):
         state = repeat(state, 'k dim -> n k dim', n = self.num_ensemble)
         state = rearrange(state, 'n k dim -> (n k) dim')
-        cov = torch.eye(self.dim_x) * 0.03
+        cov = torch.eye(self.dim_x) * 0.05
         init_dist = self.multivariate_normal_sampler(torch.zeros(self.dim_x), cov, self.num_ensemble)
         state = state+init_dist
         state = state.to(dtype=torch.float32)
         return state
+
+    def positionalencoding1d(self, d_model, length):
+        """
+        :param d_model: dimension of the model
+        :param length: length of positions
+        :return: length*d_model position matrix
+        """
+        if d_model % 2 != 0:
+            raise ValueError("Cannot use sin/cos positional encoding with "
+                            "odd dim (got dim={:d})".format(d_model))
+        pe = torch.zeros(length, d_model)
+        position = torch.arange(0, length).unsqueeze(1)
+        div_term = torch.exp((torch.arange(0, d_model, 2, dtype=torch.float) *
+                            -(math.log(10000.0) / d_model)))
+        pe[:, 0::2] = torch.sin(position.float() * div_term)
+        pe[:, 1::2] = torch.cos(position.float() * div_term)
+
+        return pe
 
 
 class tensegrityDataset(Dataset):
@@ -102,18 +122,21 @@ class tensegrityDataset(Dataset):
         self.dim_a = self.args.train.dim_a
         self.transform_ = transform(self.args)
         self.utils_ = utils(self.num_ensemble, self.args.train.dim_x, self.args.train.dim_z)
+        self.pe = self.utils_.positionalencoding1d(6,20)
+
 
     # Length of the Dataset
     def __len__(self):
         # self.dataset_length = 50
         return self.dataset_length-2
 
-    # Fetch an item from the Dataset
+    # Fetch an item from the Datasetcd 
     def __getitem__(self, idx):
         state_gt = torch.tensor(self.dataset['state_gt'][idx], dtype=torch.float32)
         state_pre = torch.tensor(self.dataset['state_pre'][idx], dtype=torch.float32)
         obs = torch.tensor(self.dataset['obs'][idx], dtype=torch.float32)
         action = torch.tensor(self.dataset['action'][idx], dtype=torch.float32)
+        code = self.dataset['code'][idx]
 
         state_gt = rearrange(state_gt, '(k dim) -> k dim', k=1)
         state_pre = rearrange(state_pre, '(k dim) -> k dim', k=1)
@@ -124,6 +147,16 @@ class tensegrityDataset(Dataset):
         state_gt = self.transform_.state_transform(state_gt).to(dtype=torch.float32)
         state_pre = self.transform_.state_transform(state_pre).to(dtype=torch.float32)
         obs = self.transform_.obs_transform(obs).to(dtype=torch.float32)
+
+        obs = rearrange(obs, 'k dim -> (k dim)')
+        # add pos embedding to the obs
+        obs[0:6] = self.pe[int(code[0]-1),:] + obs[0:6]
+        obs[6:12] = self.pe[int(code[1]-1),:] + obs[6:12]
+        obs[12:18] = self.pe[int(code[2]-1),:] + obs[12:18]
+        obs[18:24] = self.pe[int(code[3]-1),:] + obs[18:24]
+        obs[24:30] = self.pe[int(code[4]-1),:] + obs[24:30]
+
+        obs = rearrange(obs, '(k dim) -> k dim', k=1)
         action = self.transform_.action_transform(action).to(dtype=torch.float32)
         action = repeat(action, 'k dim -> n k dim', n = self.num_ensemble)
         action = rearrange(action, 'n k dim -> (n k) dim')
@@ -134,10 +167,10 @@ class tensegrityDataset(Dataset):
 
 ############ only for testing ############
 # if __name__ == '__main__':
-#     dataset = KITTIDataset(32,5,2, 'train')
+#     dataset = tensegrityDataset(32,5,2, 'train')
 #     dataloader = torch.utils.data.DataLoader(dataset, batch_size=2,
 #                                           shuffle=True, num_workers=1)
 #     for state_gt, state_pre, obs, raw_obs, state_ensemble in dataloader:
 #         print(state_ensemble.shape)
 #         print("check -------- ",state_ensemble.dtype)
-        # print(raw_obs.shape)
+#         print(raw_obs.shape)

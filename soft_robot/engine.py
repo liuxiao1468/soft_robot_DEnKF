@@ -11,6 +11,7 @@ from optimizer import build_optimizer
 from optimizer import build_lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
 import time
+import random
 import pickle
 
 class Engine():
@@ -33,6 +34,43 @@ class Engine():
         if torch.cuda.is_available():
             self.model.cuda()
 
+    def generate_mask(self, selection):
+        '''
+        selection means the index of the row sensor to remove
+        i.e. selection = [1] -> remove the 1st imu readings
+             selection = [3,4] -> remove the 3td, and 4th imy readings
+        '''
+        if len(selection) == 0:
+            index = []
+        else:
+            index = []
+            for i in range (len(selection)):
+                if selection[i] == 1:
+                    for j in range (6):
+                        idx_1 = 0 + j
+                        index.append(idx_1)
+                if selection[i] == 2:
+                    for j in range (6):
+                        idx_1 = 6 + j
+                        index.append(idx_1)
+                if selection[i] == 3:
+                    for j in range (6):
+                        idx_1 = 12 + j
+                        index.append(idx_1)
+                if selection[i] == 4:
+                    for j in range (6):
+                        idx_1 = 18 + j
+                        index.append(idx_1)
+                if selection[i] == 5:
+                    for j in range (6):
+                        idx_1 = 24 + j
+                        index.append(idx_1)
+        tmp = np.ones((30,128))
+        if len(index)!= 0:
+            tmp[index,:] = tmp[index,:] * 0
+        mask = torch.tensor(tmp, dtype=torch.float32)
+        return mask
+
     def test(self):
         # Load the pretrained model
         # checkpoint = torch.load(self.args.test.checkpoint_path)
@@ -52,6 +90,9 @@ class Engine():
             obs = obs.to(self.device)
             action = action.to(self.device)
             state_ensemble = state_ensemble.to(self.device)
+            selection = [] #-> means we don't remove modalities during training
+            mask = self.generate_mask(selection)
+            mask = mask.to(self.device)
             with torch.no_grad():
                 if step == 0:
                     ensemble = state_ensemble
@@ -61,7 +102,7 @@ class Engine():
                     state = state
                 input_state = (ensemble, state)
                 obs_action = (action, obs)
-                output = self.model(obs_action, input_state)
+                output = self.model(obs_action, input_state, mask)
 
                 ensemble = output[0] # -> ensemble estimation
                 state = output[1] # -> final estimation
@@ -96,6 +137,15 @@ class Engine():
 
         
     def train(self):
+        # # Load the pretrained model
+        # if torch.cuda.is_available():
+        #     checkpoint = torch.load(self.args.test.checkpoint_path)
+        #     self.model.load_state_dict(checkpoint['model'])
+        # else:
+        #     checkpoint = torch.load(self.args.test.checkpoint_path, map_location=torch.device('cpu'))
+        #     self.model.load_state_dict(checkpoint['model'])
+
+
         mse_criterion = nn.MSELoss()
         dataloader = torch.utils.data.DataLoader(self.dataset, batch_size = self.batch_size,
                                           shuffle=True, num_workers=1)
@@ -133,6 +183,12 @@ class Engine():
                 obs = obs.to(self.device)
                 action = action.to(self.device)
                 state_ensemble = state_ensemble.to(self.device)
+
+                # modalities = [1,2,3,4,5]
+                # selection = random.sample(modalities, 1)
+                selection = [] #-> means we don't remove modalities during training
+                mask = self.generate_mask(selection)
+                mask = mask.to(self.device)
                 # define the training curriculum
                 optimizer_.zero_grad()
                 before_op_time = time.time()
@@ -140,7 +196,7 @@ class Engine():
                 # forward pass
                 input_state = (state_ensemble, state_pre)
                 obs_action = (action, obs)
-                output = self.model(obs_action, input_state)
+                output = self.model(obs_action, input_state, mask)
 
                 final_est = output[1] # -> final estimation
                 inter_est = output[2] # -> state transition output
@@ -153,7 +209,7 @@ class Engine():
                 loss_3 = mse_criterion(obs_est, state_gt)
                 loss_4 = mse_criterion(hx, state_gt)
 
-                if epoch <= 400:
+                if epoch <= 100:
                     final_loss = loss_3
                 else:
                     final_loss = loss_1 + loss_2 + loss_3 + loss_4
@@ -180,24 +236,26 @@ class Engine():
                     self.writer.add_scalar('observation_model', loss_4.cpu().item(), self.global_step)
                     # self.writer.add_scalar('learning_rate', current_lr, self.global_step)
 
-                # Save a model based of a chosen save frequency
-                if (self.global_step!=0 and self.global_step % self.args.train.save_freq == 0):
-                    checkpoint = {'global_step': self.global_step,
-                                  'model': self.model.state_dict(),
-                                  'optimizer': optimizer_.state_dict()}
-                    torch.save(checkpoint,
-                               os.path.join(self.args.train.log_directory,
-                                            self.args.train.model_name,
-                                            'model-{}'.format(self.global_step)))
+
                 step += 1
                 self.global_step += 1
                 if scheduler is not None:
                     scheduler.step(self.global_step)
 
+            # Save a model based of a chosen save frequency
+            if (self.global_step!=0 and (epoch+1) % self.args.train.save_freq == 0):
+                checkpoint = {'global_step': self.global_step,
+                                'model': self.model.state_dict(),
+                                'optimizer': optimizer_.state_dict()}
+                torch.save(checkpoint,
+                            os.path.join(self.args.train.log_directory,
+                                        self.args.train.model_name,
+                                        'continue-model-{}'.format(self.global_step)))
+
             # online evaluation
             if (self.args.mode.do_online_eval 
                 and self.global_step != 0
-                and epoch+1 >= 400
+                and epoch+1 >= 50
                 and (epoch+1) % self.args.train.eval_freq == 0):
                 time.sleep(0.1)
                 self.model.eval()
@@ -232,6 +290,11 @@ class Engine():
             obs = obs.to(self.device)
             action = action.to(self.device)
             state_ensemble = state_ensemble.to(self.device)
+
+            selection = [5] #-> try different combination by remove modalites
+            mask = self.generate_mask(selection)
+            mask = mask.to(self.device)
+
             with torch.no_grad():
                 if step == 0:
                     ensemble = state_ensemble
@@ -241,12 +304,12 @@ class Engine():
                     state = state
                 input_state = (ensemble, state)
                 obs_action = (action, obs)
-                output = self.model(obs_action, input_state)
+                output = self.model(obs_action, input_state, mask)
 
                 ensemble = output[0] # -> ensemble estimation
                 state = output[1] # -> final estimation
                 obs_p = output[3] # -> learned observation
-                if step%10 == 0:
+                if step%1000 == 0:
                     print('===============')
                     print(state)
                     print(obs_p)
@@ -275,7 +338,7 @@ class Engine():
 
         save_path = os.path.join(self.args.train.eval_summary_directory,
             self.args.train.model_name,
-            'test-result-{}.pkl'.format(self.global_step))
+            'test-result-{}.pkl'.format('rm_5'))
 
         with open(save_path, 'wb') as f:
             pickle.dump(data, f)
