@@ -129,50 +129,19 @@ def read_tmbagcsv(filename):
 
 def get_data(path):
       print("****** This is a test ******")
-      #df = pd.read_csv(r"..\bag2csv\bag\tmbag_33\tmbag_33.csv", low_memory=False)
-
       data_dict = read_tmbagcsv(path)
-    #   print("time:")
-    #   print(data_dict['time'].shape)
-    #   print("desired:")
-    #   print(data_dict['desired'].shape)
-    #   print("current:")
-    #   print(data_dict['current'].shape)
-    #   print("There are %d IMUs" % len(data_dict['imus_acc']))
-    #   for i in range(len(data_dict['imus_acc'])):
-    #         print("IMU%d acc:" % i)
-    #         print(data_dict['imus_acc'][i].shape)
-    #         print("IMU%d vel:" % i)
-    #         print(data_dict['imus_vel'][i].shape)
-    #   print("mocap pos:")
-    #   print(data_dict['mocap_pos'].shape)
-    #   print("mocap rot:")
-    #   print(data_dict['mocap_rot'].shape)
+
       return data_dict
 
 def create_dataset():
     print('===========')
-#     index = [33,34,35,36,37,38,39,40,41,42,43,44]
-    index = [52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62]
+    index = [52]
     for j in range (len(index)):
         print("----",str(index[j]))
-      #   dataset = get_data('./bag_csv/tmbag_'+str(index[j])+'/tmbag_'+str(index[j])+'.csv')
         dataset = get_data('./bag_csv/tmbag_'+str(index[j])+'.csv')
         # actions
         action = dataset['current']
         print('actions: ',action.shape)
-
-      #   # IMU readings as one array
-      #   obs1_list = dataset['imus_acc']
-      #   for i in range (len(obs1_list)):
-      #       if i == 0:
-      #           obs = obs1_list[i]
-      #       else:
-      #           obs = np.concatenate((obs, obs1_list[i]), axis=1)
-      #   obs2_list = dataset['imus_vel']
-      #   for i in range (len(obs2_list)):
-      #           obs = np.concatenate((obs, obs2_list[i]), axis=1)
-      #   print('observations: ',obs.shape)
 
         # reorganize IMUs
         obs1_list = dataset['imus_acc']
@@ -191,7 +160,6 @@ def create_dataset():
         state = np.concatenate((state, ori), axis=1)
         print('observations: ',obs.shape)
         print('states: ',state.shape)
-
 
         # code
         code = dataset['code']
@@ -256,76 +224,6 @@ def create_dataset():
         data['code'] = code_gt
 
         with open('./processed_data/test_dataset_'+str(index[j])+'.pkl', 'wb') as f:
-            pickle.dump(data, f)
-
-def create_dataset_four():
-      dataset = pickle.load(open('dataset_4.pkl', 'rb'))
-      # actions
-      action = dataset['current']
-      print('actions: ',action.shape)
-      # IMU readings as one array
-      obs1_list = dataset['imus_acc']
-      for i in range (len(obs1_list)):
-            if i == 0:
-                  obs = obs1_list[i]
-            else:
-                  obs = np.concatenate((obs, obs1_list[i]), axis=1)
-      obs2_list = dataset['imus_vel']
-      for i in range (len(obs2_list)):
-            obs = np.concatenate((obs, obs2_list[i]), axis=1)
-      print('observations: ',obs.shape)
-
-      # mocap as array
-      state = dataset['mocap_pos']
-      print('states: ',state.shape)
-
-      parameters = dict()
-      action_m = np.mean(action, axis = 0)
-      action_std = np.std(action, axis = 0)
-      obs_m = np.mean(obs, axis = 0)
-      obs_std = np.std(obs, axis = 0)
-      state_m = np.mean(state, axis = 0)
-      state_std = np.std(state, axis = 0)
-      parameters['action_m'] = action_m
-      parameters['action_std'] = action_std
-      parameters['obs_m'] = obs_m
-      parameters['obs_std'] = obs_std
-      parameters['state_m'] = state_m
-      parameters['state_std'] = state_std
-
-
-      with open('./processed_data/parameter_4.pkl', 'wb') as handle:
-            pickle.dump(parameters, handle)
-
-      #########create dataset for the filter - train #########
-      num_points = 500000
-      state_pre = state[0:num_points]
-      state_gt = state[1:num_points+1]
-      action_gt = action[1:num_points]
-      obs_gt = obs[1:num_points]
-
-      data = dict()
-      data['state_pre'] = state_pre
-      data['state_gt'] = state_gt
-      data['action'] = action_gt
-      data['obs'] = obs_gt
-
-      with open('./processed_data/train_dataset_4.pkl', 'wb') as f:
-            pickle.dump(data, f)
-
-      ######### create dataset for the filter - test #########
-      state_pre = state[num_points:num_points+10000]
-      state_gt = state[num_points+1:num_points+10001]
-      action_gt = action[num_points:num_points+10000]
-      obs_gt = obs[num_points+1:num_points+10001]
-
-      data = dict()
-      data['state_pre'] = state_pre
-      data['state_gt'] = state_gt
-      data['action'] = action
-      data['obs'] = obs
-
-      with open('./processed_data/test_dataset_4.pkl', 'wb') as f:
             pickle.dump(data, f)
 
 
@@ -423,78 +321,15 @@ def create_merged_dataset():
 
 
 def main():
-      # create_dataset()
-      # create_merged_dataset()
-      data = pickle.load(open('./processed_data/test_dataset_60.pkl', 'rb'))
+      create_dataset()
+      data = pickle.load(open('./processed_data/test_dataset_52.pkl', 'rb'))
       print(data['state_pre'].shape)
       print(data['obs'].shape)
       print(data['action'].shape)
-      print(data['obs'][100])
-      print(data['state_pre'][100])
       print(data['code'].shape)
-      # for i in range (100):
-      #       print(data['action'][i])
-
-      # # create_dataset_four()
-
-      # # #################### testing ground ####################
-      # data_tmp = pickle.load(open('./processed_data/test_dataset_51.pkl', 'rb'))
-      # print(len(data_tmp['state_gt']))
-      # obs = data_tmp['obs']
-      # state = data_tmp['state_gt']
-      # fig = plt.figure(figsize = (10, 7))
-
-
-      # # # ######### Creating figure #########
-      # # # # fig = plt.figure(figsize = (10, 7))
-
-      # # # # # the pressure vector
-      # # # # tmp_arr = action[400:500,:].T
-      # # # # plt.imshow(tmp_arr, interpolation='nearest')
-
-
-      # # # the IMU readings
-      # # x = np.linspace(1, obs.shape[0], obs.shape[0])
-      # # for i in range (3):
-      # #     plt.plot(x, obs[:x.shape[0],i].flatten(), '--' ,linewidth=1, alpha=0.5)
-
-      # # the 3d plot for the state
-      # ax = plt.axes(projection ="3d")
-      # # Creating plot
-      # ax.scatter3D(state[:,0], state[:,1], state[:,2])
-
-      # # plt.title("pressure vector - actions")
-      # # show plot
-      # plt.show()
-
-def quat_to_elev_azim_roll(q, angle_offsets=(0, 0, 0)):
-    q0, q1, q2, q3 = q.w, q.x, q.y, q.z
-    phi = np.arctan2(-2*q1*q2 + 2*q0*q3, q1**2 + q0**2 - q3**2 - q2**2)
-    theta = np.arcsin(2*q1*q3 + 2*q0*q2)
-    psi = np.arctan2(-2*q2*q3 + 2*q0*q1, q3**2 - q2**2 - q1**2 + q0**2)
-    azim = np.rad2deg(phi) + angle_offsets[0]
-    elev = np.rad2deg(-theta) + angle_offsets[1]
-    roll = np.rad2deg(psi) + angle_offsets[2]
-    return elev, azim, roll
-
-def elev_azim_roll_to_quat(elev, azim, roll, angle_offsets=(0, 0, 0)):
-    phi = np.deg2rad(azim) - angle_offsets[0]
-    theta = np.deg2rad(-elev) - angle_offsets[1]
-    psi = np.deg2rad(roll) - angle_offsets[2]
-    q0 = np.cos(phi/2)*np.cos(theta/2)*np.cos(psi/2) - np.sin(phi/2)*np.sin(theta/2)*np.sin(psi/2)
-    q1 = np.cos(phi/2)*np.cos(theta/2)*np.sin(psi/2) + np.sin(phi/2)*np.sin(theta/2)*np.cos(psi/2)
-    q2 = np.cos(phi/2)*np.sin(theta/2)*np.cos(psi/2) - np.sin(phi/2)*np.cos(theta/2)*np.sin(psi/2)
-    q3 = np.cos(phi/2)*np.sin(theta/2)*np.sin(psi/2) + np.sin(phi/2)*np.cos(theta/2)*np.cos(psi/2)
-    q = np.quaternion(q0, q1, q2, q3)
-    return q
-
-
 
 if __name__ == '__main__':
-      # main()
-      # modalities = [1,2,3,4,5]
-      # index = random.sample(modalities, 1)
-      # print(index)
+      main()
 
 
       ################# ROS msg. #################
@@ -516,51 +351,5 @@ if __name__ == '__main__':
 
       #             time.sleep(0.1)
       ############################################
-      import math
 
-      def quaternion_to_euler(w, x, y, z):
-
-        t0 = 2 * (w * x + y * z)
-        t1 = 1 - 2 * (x * x + y * y)
-        X = math.atan2(t0, t1)
-
-        t2 = 2 * (w * y - z * x)
-        t2 = 1 if t2 > 1 else t2
-        t2 = -1 if t2 < -1 else t2
-        Y = math.asin(t2)
-        
-        t3 = 2 * (w * z + x * y)
-        t4 = 1 - 2 * (y * y + z * z)
-        Z = math.atan2(t3, t4)
-
-        return X, Y, Z
-
-      data = pickle.load(open('./processed_data/test_dataset_60.pkl', 'rb'))
-      q_array = data['state_pre']
-      q = q_array[10][-4:]
-      p = q_array[10][:3]
-      x,y,z = quaternion_to_euler(q[0], q[1], q[2], q[3])
-
-
-      fig = plt.figure()
-      ax = fig.add_subplot(111, projection='3d')
-      # Cartesian axes
-      ax.quiver(-1, 0, 0, 3, 0, 0, color='#aaaaaa',linestyle='dashed')
-      ax.quiver(0, -1, 0, 0,3, 0, color='#aaaaaa',linestyle='dashed')
-      ax.quiver(0, 0, -1, 0, 0, 3, color='#aaaaaa',linestyle='dashed')
-      # Vector before rotation
-      ax.quiver(0, 0, 0, 1, 0, 0, color='b')
-      # Vector after rotation
-      ax.quiver(p[0]/1000, p[1]/1000, p[2]/1000, x, y, z, color='r')
-      ax.set_xlim([-1.5, 1.5])
-      ax.set_ylim([-1.5, 1.5])
-      ax.set_zlim([0, 3])
-      plt.show()
-
-
-
-      
-
-      
-      
       # client.terminat
