@@ -176,7 +176,11 @@ class Engine:
 
         # Create optimizer
         optimizer_ = build_optimizer(
-            self.model,
+            [
+                self.model.process_model,
+                self.model.observation_model,
+                self.model.observation_noise,
+            ],
             self.args.network.name,
             self.args.optim.optim,
             self.args.train.learning_rate,

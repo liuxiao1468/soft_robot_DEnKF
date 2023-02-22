@@ -221,6 +221,7 @@ class ProcessModelsampling(nn.Module):
 
         merge = self.bayes_m1(merge)
         merge = self.bayes_m2(merge)
+        feat_map = merge
 
         merge, _ = self.bayes4(merge)
         update, _ = self.bayes5(merge)
@@ -228,7 +229,8 @@ class ProcessModelsampling(nn.Module):
         state = rearrange(
             state, "(bs k) dim -> bs k dim", bs=batch_size, k=self.num_ensemble
         )
-        return state
+
+        return state, feat_map
 
 
 class ObservationModel(nn.Module):
@@ -486,6 +488,7 @@ class Ensemble_KF_low(nn.Module):
         m_state_new = torch.mean(state_new, axis=1)
         m_state_new = rearrange(m_state_new, "bs (k dim) -> bs k dim", k=1)
         m_state_pred = rearrange(m_A, "bs (k dim) -> bs k dim", k=1)
+        encoding = rearrange(encoding, "bs k dim -> (bs k) dim", k=1)
         output = (
             state_new.to(dtype=torch.float32),
             m_state_new.to(dtype=torch.float32),
@@ -493,6 +496,7 @@ class Ensemble_KF_low(nn.Module):
             z.to(dtype=torch.float32),
             ensemble_z.to(dtype=torch.float32),
             H_X_mean.to(dtype=torch.float32),
+            encoding.to(dtype=torch.float32),
         )
         return output
 
@@ -524,7 +528,7 @@ class Ensemble_KF_general(nn.Module):
         state_old, m_state = states
 
         ##### prediction step #####
-        state_pred = self.process_model(state_old, action, sample_freq)
+        state_pred, feat_map = self.process_model(state_old, action, sample_freq)
         m_A = torch.mean(state_pred, axis=1)
         mean_A = repeat(m_A, "bs dim -> bs k dim", k=self.num_ensemble)
         A = state_pred - mean_A
@@ -558,6 +562,7 @@ class Ensemble_KF_general(nn.Module):
         m_state_new = torch.mean(state_new, axis=1)
         m_state_new = rearrange(m_state_new, "bs (k dim) -> bs k dim", k=1)
         m_state_pred = rearrange(m_A, "bs (k dim) -> bs k dim", k=1)
+        # encoding = rearrange(m_A, "bs k dim -> (bs k) dim", k=1)
         output = (
             state_new.to(dtype=torch.float32),
             m_state_new.to(dtype=torch.float32),
@@ -565,6 +570,8 @@ class Ensemble_KF_general(nn.Module):
             z.to(dtype=torch.float32),
             ensemble_z.to(dtype=torch.float32),
             H_X_mean.to(dtype=torch.float32),
+            feat_map.to(dtype=torch.float32),
+            # encoding.to(dtype=torch.float32),
         )
         return output
 
