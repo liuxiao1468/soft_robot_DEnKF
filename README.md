@@ -63,7 +63,7 @@ Differentiable Ensemble Kalman Filter
 
 ## Datasets
 #### Tensegrity_dataset
-Ask IKemoto-san for the dataset.
+Ask IKemoto-san for the dataset of the soft robot (ikemoto@brain.kyutech.ac.jp)
 
 
 ## Results
