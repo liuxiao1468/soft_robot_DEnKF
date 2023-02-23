@@ -596,6 +596,7 @@ class EKF(tf.keras.Model):
 
         state_pred = tf.reshape(state_p, [self.batch_size, 1, self.dim_x])
         state_old = tf.reshape(state_old, [self.batch_size, 1, self.dim_x])
+        F = tf.reshape(F, [self.batch_size, self.dim_x, self.dim_x])
 
         update = state_pred - state_old
         d_state = tf.reshape(update, [self.batch_size, 1, self.dim_x])
