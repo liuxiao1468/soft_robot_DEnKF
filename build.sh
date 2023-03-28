@@ -5,5 +5,5 @@ if [[ -z $IMAGE_TAG ]]
 then
   echo "No image tag provided. Not building image."
 else
-  docker build -t radiusaiinc/torch_filter:$IMAGE_TAG .
+  docker build -t softrobot/torch_filter:$IMAGE_TAG .
 fi
