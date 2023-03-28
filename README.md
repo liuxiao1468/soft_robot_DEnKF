@@ -1,5 +1,9 @@
-# torch_filter
-This is the pytorch differentiable filter for robot state estimation
+# softrobot_torch_filter
+This paper introduces a novel approach for modeling the dynamics of soft robots, utilizing a differentiable filter architecture. The proposed approach enables end-to-end training to learn system dynamics, noise characteristics, and temporal behavior of the robot. A novel spatio-temporal embedding process is discussed to handle observations with varying sensor placements and sampling frequencies. The efficacy of this approach is demonstrated on a tensegrity robot arm by learning end-effector dynamics from demonstrations with complex bending motions. The model is proven to be robust against missing modalities, diverse sensor placement, and varying sampling rates. Additionally, the proposed framework is shown to identify physical interactions with humans during motion. The utilization of a differentiable filter presents a novel solution to the difficulties of modeling soft robot dynamics. Our approach shows substantial improvement in accuracy compared to state-of-the-art filtering methods, with at least a 24% reduction in mean absolute error (MAE) observed. Furthermore, the predicted end-effector positions show an average MAE of 25.77mm from the ground truth, highlighting the advantage of our approach. 
+
+<p align="center">
+<img src = "img/overview.png" width ="400" />
+</p>
 
 ## Getting Started
 #### docker workflow
@@ -67,8 +71,10 @@ Ask IKemoto-san for the dataset of the soft robot (ikemoto@brain.kyutech.ac.jp)
 
 
 ## Results
-TBD
-
+<p align="center">
+<img src = "img/results.png" width ="400" />
+</p>
+The real-time estimation of the state on the tensegrity robot arm is demonstrated in this study. Specifically, the `top` figure presents a motion sequence of the robot without applying external forces, while the `bottom` figure showcases the real-time tracking outcomes (along with the corresponding uncertainty) of the positions of the hand tip.
 
 ## Model Zoo
 TBD
