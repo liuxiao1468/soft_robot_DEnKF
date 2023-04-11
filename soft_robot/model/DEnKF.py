@@ -173,8 +173,8 @@ class ProcessModelsampling(nn.Module):
         position = torch.arange(0, length).unsqueeze(1)
         div_term = torch.exp(
             (
-                torch.arange(0, d_model, 2, dtype=torch.float)
-                * -(math.log(10000.0) / d_model)
+                    torch.arange(0, d_model, 2, dtype=torch.float)
+                    * -(math.log(10000.0) / d_model)
             )
         )
         pe[:, 0::2] = torch.sin(position.float() * div_term)
@@ -646,6 +646,77 @@ class Ensemble_KF_no_action(nn.Module):
         )
         return output
 
+
+class EnsembleKfNoAction(nn.Module):
+    """
+    Adjusted version of the Ensemble_KF_no_action class.
+    The forward pass of this one expects fewer inputs, returns fewer outputs, and ignores masking.
+    """
+
+    def __init__(self, num_ensemble, dim_x, dim_z):
+        super(EnsembleKfNoAction, self).__init__()
+
+        self.__num_ensemble = num_ensemble
+
+        # we don't remove modalities during training
+        # therefore, no mask (everything 1)
+        mask = torch.from_numpy(np.ones((30, 128)))
+        self.__mask = mask.to(self.__device)
+
+        # instantiate models
+        self.__process_model = ProcessModel(num_ensemble=num_ensemble, dim_x=dim_x)
+        self.__observation_model = ObservationModel(num_ensemble=num_ensemble, dim_x=dim_x, dim_z=dim_z)
+
+        r_diag = np.ones(dim_z) * 0.1
+        r_diag = r_diag.astype(np.float32)
+        self.__observation_noise = ObservationNoise(dim_z=dim_z, r_diag=r_diag)
+        self.__sensor_model = BayesianSensorModel(num_ensemble=num_ensemble, dim_z=dim_z)
+
+    def forward(self, state_old, raw_obs):
+        ##### prediction step #####
+        state_pred = self.__process_model(state_old)
+        m_A = torch.mean(state_pred, axis=1)
+        mean_A = repeat(m_A, "bs dim -> bs k dim", k=self.__num_ensemble)
+        A = state_pred - mean_A
+        A = rearrange(A, "bs k dim -> bs dim k")
+
+        ##### update step #####
+        H_X = self.__observation_model(state_pred)
+        mean = torch.mean(H_X, axis=1)
+        H_X_mean = rearrange(mean, "bs (k dim) -> bs k dim", k=1)
+        m = repeat(mean, "bs dim -> bs k dim", k=self.__num_ensemble)
+        H_A = H_X - m
+        # transpose operation
+        H_XT = rearrange(H_X, "bs k dim -> bs dim k")
+        H_AT = rearrange(H_A, "bs k dim -> bs dim k")
+
+        # get learned observation
+        ensemble_z, z, encoding = self.__sensor_model(raw_obs, self.__mask)
+        y = rearrange(ensemble_z, "bs k dim -> bs dim k")
+        R = self.__observation_noise(encoding)
+
+        # measurement update
+        innovation = (1 / (self.__num_ensemble - 1)) * torch.matmul(H_AT, H_A) + R
+        inv_innovation = torch.linalg.inv(innovation)
+        K = (1 / (self.__num_ensemble - 1)) * torch.matmul(
+            torch.matmul(A, H_A), inv_innovation
+        )
+        gain = rearrange(torch.matmul(K, y - H_XT), "bs dim k -> bs k dim")
+        state_new = state_pred + gain
+
+        # gather output
+        m_state_new = torch.mean(state_new, axis=1)
+        m_state_new = rearrange(m_state_new, "bs (k dim) -> bs k dim", k=1)
+        m_state_pred = rearrange(m_A, "bs (k dim) -> bs k dim", k=1)
+        output = (
+            state_new.to(dtype=torch.float32),
+            m_state_new.to(dtype=torch.float32),
+            m_state_pred.to(dtype=torch.float32),
+            z.to(dtype=torch.float32),
+            ensemble_z.to(dtype=torch.float32),
+            H_X_mean.to(dtype=torch.float32),
+        )
+        return output
 
 ############ only for testing ############
 # r_diag = np.ones((2)).astype(np.float32) * 0.1

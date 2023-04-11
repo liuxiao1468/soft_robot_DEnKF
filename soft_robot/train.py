@@ -2,17 +2,18 @@ import argparse
 import logging
 import os
 from config import cfg
-import engine
-
+from soft_robot.engine import Engine
+from soft_robot.sw_engine import SwEngine
 
 # $python train.py --config tensegrity_1.0.yaml
 logging_kwargs = dict(
-        level="INFO",
-        format="%(asctime)s %(threadName)s %(levelname)s %(name)s - %(message)s",
-        style='%',
-    )
+    level="INFO",
+    format="%(asctime)s %(threadName)s %(levelname)s %(name)s - %(message)s",
+    style='%',
+)
 logging.basicConfig(**logging_kwargs)
 logger = logging.getLogger('DEnKF')
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -28,6 +29,7 @@ def parse_args():
     if bool(args.num_epochs):
         cfg.train.num_epochs = args.num_epochs
     return cfg, config_file
+
 
 def main():
     cfg, config_file = parse_args()
@@ -45,12 +47,18 @@ def main():
         logger.warning('This logging directory already exists: {}. Over-writing current files'
                        .format(os.path.join(cfg.train.log_directory, cfg.train.model_name)))
 
+    if "smartwatch" in cfg.train.model_name:
+        # the smartwatch data set requires slightly adapted procedures
+        train_engine = SwEngine(args=cfg, logger=logger)
+    else:
+        train_engine = Engine(args=cfg, logger=logger)
+
     ####### start the training #######
-    train_engine = engine.Engine(args = cfg, logger=logger)
     if cfg.mode.mode == 'train':
         train_engine.train()
     if cfg.mode.mode == 'test':
         train_engine.online_test()
+
 
 if __name__ == "__main__":
     main()
