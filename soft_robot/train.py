@@ -1,8 +1,6 @@
 import argparse
 import logging
 import os
-import yaml
-from sys import argv
 from config import cfg
 import engine
 
