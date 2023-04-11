@@ -1,6 +1,6 @@
 numpy
 scikit-build
-sklearn
+scikit-learn
 opencv-python
 pandas
 matplotlib
