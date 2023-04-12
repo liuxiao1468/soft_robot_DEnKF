@@ -1,10 +1,7 @@
-import os
-import time
-import pickle
 import torch
-
 import numpy as np
 
+from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 
@@ -18,14 +15,25 @@ class SwEngine:
     """
     SmartwatchEngine.
     This class is in parts copied from the original engine.py.
-    It has been adapted to handle the smartwatch data set
+    It has been adapted to handle the smartwatch data set.
+    Some parameters of the input "args" config are handled differently:
+       * log_freq, eval_freq, and save_freq all refer the global step count
+       * the test function reports the same loss as the train function, but over the test dataset
+       * this Engine does not allow masking and the consideration of actions
     """
 
     def __init__(self, args, logger):
+        """
+        Constructor
+        Args:
+            args: the config params read in train.py
+            logger: a logger instance to log updates and warnings
+        """
 
         self.__args = args
         self.__logger = logger
 
+        # global step counter across all epochs
         self.__global_step = 0
 
         # create model with params from config
@@ -36,161 +44,80 @@ class SwEngine:
             input_size=args.train.input_size
         )
 
-        # Check model type
-        if not isinstance(self.__model, torch.nn.Module):
-            raise TypeError("model must be an instance of nn.Module")
-
         # move to GPU if possible
         self.__device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if torch.cuda.is_available():
             self.__model.cuda()
 
         # tensorboard writer
-        self.__writer = SummaryWriter(
-            f"./experiments/{self.__args.train.model_name}/summaries"
-        )
+        tb_path = Path(args.train.log_directory) / "tensorboard"
+        tb_path.mkdir(parents=True, exist_ok=True)
+        self.__tb_writer = SummaryWriter(tb_path)
 
         # prepare data sets such that they only have to load once
         self.__test_dataset = SmartwatchDataset(
-            dataset_path=self.__args.test.data_path,
-            num_ensemble=self.__args.test.num_ensemble,
-            dim_x=self.__args.test.dim_x,
-            dim_z=self.__args.test.dim_z
+            dataset_path=args.test.data_path,
+            num_ensemble=args.test.num_ensemble,
+            dim_x=args.test.dim_x,
+            dim_z=args.test.dim_z
         )
         self.__train_dataset = SmartwatchDataset(
-            dataset_path=self.__args.train.data_path,
-            num_ensemble=self.__args.train.num_ensemble,
-            dim_x=self.__args.train.dim_x,
-            dim_z=self.__args.train.dim_z
+            dataset_path=args.train.data_path,
+            num_ensemble=args.train.num_ensemble,
+            dim_x=args.train.dim_x,
+            dim_z=args.train.dim_z
         )
 
-    def test(self):
+    def test_model(self):
+        """
+        evaluate the current model of this class on the dest data using the parameters from self.__args
+        """
 
-        test_dataloader = DataLoader(self.__test_dataset, batch_size=1, shuffle=False)
+        batch_size = self.__args.train.batch_size
+        test_dataloader = DataLoader(self.__test_dataset, batch_size=batch_size, shuffle=True)
 
-        step = 0
-        data = {}
-        data_save = []
-        ensemble_save = []
-        gt_save = []
-        obs_save = []
+        # The loss function
+        mse_criterion = torch.nn.MSELoss()
 
         # set model to evaluation mode before the predictions
         self.__model.eval()
 
-        last_ensemble, state = None, None
-        for state_gt, state_pre_ens, obs in test_dataloader:
-            state_gt = state_gt.to(self.__device)
-            state_pre_ens = state_pre_ens.to(self.__device)
-            obs = obs.to(self.__device)
-
-            if last_ensemble is None:
-                last_ensemble = state_pre_ens
-
-            with torch.no_grad():
-                output = self.__model(state_old=last_ensemble, raw_obs=obs)
-                last_ensemble = output[0]  # -> ensemble estimation
-                state = output[1]  # -> final estimation
-                obs_p = output[3]  # -> learned observation
-
-                final_ensemble = last_ensemble  # -> make sure these variables are tensor
-                final_est = state
-                obs_est = obs_p
-
-                final_ensemble = final_ensemble.cpu().detach().numpy()
-                final_est = final_est.cpu().detach().numpy()
-                obs_est = obs_est.cpu().detach().numpy()
-                state_gt = state_gt.cpu().detach().numpy()
-
-                data_save.append(final_est)
-                ensemble_save.append(final_ensemble)
-                gt_save.append(state_gt)
-                obs_save.append(obs_est)
-                step = step + 1
-
-        data["state"] = data_save
-        data["ensemble"] = ensemble_save
-        data["gt"] = gt_save
-        data["observation"] = obs_save
-
-        save_path = os.path.join(
-            self.__args.train.eval_summary_directory,
-            self.__args.train.model_name,
-            "eval-result-{}.pkl".format(self.__global_step),
-        )
-
-        with open(save_path, "wb") as f:
-            pickle.dump(data, f)
-
-    # @TODO: needs more work but is not in use yet
-    def online_test(self):
-
-        self.__model.eval()
-
-        test_dataloader = torch.utils.data.DataLoader(self.__test_dataset, batch_size=1, shuffle=False)
-
-        step = 0
-        data = {}
-        data_save = []
-        ensemble_save = []
-        gt_save = []
-        obs_save = []
-        ensemble = None
+        losses = []
         for state_gt, state_pre_ens, obs in test_dataloader:
             state_gt = state_gt.to(self.__device)
             state_pre_ens = state_pre_ens.to(self.__device)
             obs = obs.to(self.__device)
 
             with torch.no_grad():
-                if ensemble is None:
-                    ensemble = state_pre_ens
-                output = self.__model(state_old=ensemble, raw_obs=obs)
-                ensemble = output[0]  # -> ensemble estimation
-                state = output[1]  # -> final estimation
-                obs_p = output[3]  # -> learned observation
-                if step % 1000 == 0:
-                    print("===============")
-                    print(state)
-                    print(obs_p)
-                    print(state_gt)
-                    print(output[2])
+                output = self.__model(state_old_ens=state_pre_ens, raw_obs=obs)
+                final_est = output[1]  # -> final estimation
+                inter_est = output[2]  # -> state transition output
+                obs_est = output[3]  # -> learned observation
+                hx = output[5]  # -> observation output
 
-                final_ensemble = ensemble  # -> make sure these variables are tensor
-                final_est = state
-                obs_est = obs_p
+                # calculate loss
+                loss_1 = mse_criterion(final_est, state_gt)
+                loss_2 = mse_criterion(inter_est, state_gt)
+                loss_3 = mse_criterion(obs_est, state_gt)
+                loss_4 = mse_criterion(hx, state_gt)
+                final_loss = loss_1 + loss_2 + loss_3 + loss_4
+                losses.append(final_loss.cpu().item())
 
-                final_ensemble = final_ensemble.cpu().detach().numpy()
-                final_est = final_est.cpu().detach().numpy()
-                obs_est = obs_est.cpu().detach().numpy()
-                state_gt = state_gt.cpu().detach().numpy()
+        self.__logger.info("[test result][gs]: [{}], loss: {:.12f}".format(
+            self.__global_step,
+            np.mean(losses)
+        ))
 
-                data_save.append(final_est)
-                ensemble_save.append(final_ensemble)
-                gt_save.append(state_gt)
-                obs_save.append(obs_est)
-                step = step + 1
-
-        data["state"] = data_save
-        data["ensemble"] = ensemble_save
-        data["gt"] = gt_save
-        data["observation"] = obs_save
-
-        save_path = os.path.join(
-            self.__args.train.eval_summary_directory,
-            self.__args.train.model_name,
-            "test-result-{}.pkl".format("52"),
-        )
-
-        with open(save_path, "wb") as f:
-            pickle.dump(data, f)
-
-    def train(self):
-
+    def train_model(self):
+        """
+        train model on entire training data set using the parameters from self.__args
+        """
+        # create data loader from data set
         batch_size = self.__args.train.batch_size
         train_data_loader = DataLoader(self.__train_dataset, batch_size=batch_size, shuffle=True)
 
-        pytorch_total_params = sum(p.numel() for p in self.__model.parameters() if p.requires_grad)
-        self.__logger.info("Total number of parameters: {}".format(pytorch_total_params))
+        # The loss function
+        mse_criterion = torch.nn.MSELoss()
 
         # Create optimizer
         optimizer = build_optimizer(
@@ -217,26 +144,15 @@ class SwEngine:
             self.__args.train.end_learning_rate,
         )
 
-        # The loss function
-        mse_criterion = torch.nn.MSELoss()
-
-        # Epoch calculations
-        steps_per_epoch = len(train_data_loader)
-        epoch = self.__global_step // steps_per_epoch
-        duration = 0
-
-        ####################################################################################################
-        # MAIN TRAINING LOOP
-        ####################################################################################################
-
-        while epoch < self.__args.train.num_epochs:
+        # the training loop
+        for epoch in range(self.__args.train.num_epochs):
+            # reset local step counter for every epoch
             step = 0
 
             # ensure model is in training mode
             self.__model.train()
 
             for state_gt, state_pre_ens, obs in train_data_loader:
-
                 # move all to GPU
                 state_gt = state_gt.to(self.__device)
                 state_pre_ens = state_pre_ens.to(self.__device)
@@ -244,7 +160,6 @@ class SwEngine:
 
                 # define the training curriculum
                 optimizer.zero_grad()
-                before_op_time = time.time()
 
                 # forward pass
                 output = self.__model(state_old_ens=state_pre_ens, raw_obs=obs)
@@ -258,81 +173,58 @@ class SwEngine:
                 loss_2 = mse_criterion(inter_est, state_gt)
                 loss_3 = mse_criterion(obs_est, state_gt)
                 loss_4 = mse_criterion(hx, state_gt)
-
                 final_loss = loss_1 + loss_2 + loss_3 + loss_4
+                if np.isnan(final_loss.cpu().item()):
+                    raise UserWarning("NaN in loss occurred. Aborting training.")
 
                 # back prop
                 final_loss.backward()
                 optimizer.step()
                 current_lr = optimizer.param_groups[0]["lr"]
 
-                # verbose
-                if self.__global_step % self.__args.train.log_freq == 0:
-                    string = "[epoch][s/s_per_e/gs]: [{}][{}/{}/{}], lr: {:.12f}, loss: {:.12f}"
-                    self.__logger.info(
-                        string.format(
-                            epoch,
-                            step,
-                            steps_per_epoch,
-                            self.__global_step,
-                            current_lr,
-                            final_loss,
-                        )
-                    )
-                    if np.isnan(final_loss.cpu().item()):
-                        self.__logger.warning("NaN in loss occurred. Aborting training.")
-                        return -1
-
-                # tensorboard
-                duration += time.time() - before_op_time
-                if (
-                        self.__global_step
-                        and self.__global_step % self.__args.train.log_freq == 0
-                ):
-                    self.__writer.add_scalar(
-                        "end_to_end_loss", final_loss.cpu().item(), self.__global_step
-                    )
-                    self.__writer.add_scalar(
-                        "transition model", loss_2.cpu().item(), self.__global_step
-                    )
-                    self.__writer.add_scalar(
-                        "sensor_model", loss_3.cpu().item(), self.__global_step
-                    )
-                    self.__writer.add_scalar(
-                        "observation_model", loss_4.cpu().item(), self.__global_step
-                    )
-                    # self.writer.add_scalar('learning_rate', current_lr, self.global_step)
-
+                # update steps and LR-scheduler
                 step += 1
                 self.__global_step += 1
-                if scheduler is not None:
-                    scheduler.step(self.__global_step)
+                scheduler.step(self.__global_step)
 
-            # Save a model based of a chosen save frequency
-            if self.__global_step != 0 and (epoch + 1) % self.__args.train.save_freq == 0:
-                checkpoint = {
-                    "global_step": self.__global_step,
-                    "model": self.__model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                }
-                torch.save(
-                    checkpoint,
-                    os.path.join(
-                        self.__args.train.log_directory,
-                        self.__args.train.model_name,
-                        "final-model-{}".format(self.__global_step),
-                    ),
-                )
+                # verbose and tensorboard
+                if self.__global_step % self.__args.train.log_freq == 0:
+                    self.__logger.info(
+                        "[epoch][s/gs]: [{}][{}/{}], lr: {:.12f}, loss: {:.12f}".format(
+                            epoch,
+                            step,
+                            self.__global_step,
+                            current_lr,
+                            final_loss
+                        )
+                    )
+                    self.__tb_writer.add_scalar("end_to_end_loss", final_loss.cpu().item(), self.__global_step)
+                    self.__tb_writer.add_scalar("transition model", loss_2.cpu().item(), self.__global_step)
+                    self.__tb_writer.add_scalar("sensor_model", loss_3.cpu().item(), self.__global_step)
+                    self.__tb_writer.add_scalar("observation_model", loss_4.cpu().item(), self.__global_step)
+                    # self.writer.add_scalar('learning_rate', current_lr, self.global_step)
 
-            # online evaluation
-            if (
-                    self.__args.mode.do_online_eval
-                    and self.__global_step != 0
-                    and epoch + 1 >= 50
-                    and (epoch + 1) % self.__args.train.eval_freq == 0
-            ):
-                time.sleep(0.1)
-                self.test()
+                # Save a model based of a chosen save frequency
+                if self.__global_step % self.__args.train.save_freq == 0:
+                    save_path = Path(
+                        self.__args.train.log_directory) / self.__args.train.model_name / "final-model-{}".format(
+                        self.__global_step)
+                    checkpoint = {
+                        "global_step": self.__global_step,
+                        "model": self.__model.state_dict(),
+                        "optimizer": optimizer.state_dict(),
+                    }
+                    torch.save(checkpoint, save_path)
+                    self.__logger.info(
+                        "[save model][s/gs]: [{}][{}/{}], saved checkpoint to {}".format(
+                            epoch,
+                            step,
+                            self.__global_step,
+                            save_path
+                        )
+                    )
 
-            # Update epoch
-            epoch += 1
+                # get loss on test data if online evaluation is active
+                if self.__args.mode.do_online_eval:
+                    if self.__global_step % self.__args.train.eval_freq == 0:
+                        self.test_model()

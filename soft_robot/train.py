@@ -1,6 +1,8 @@
 import argparse
 import logging
 import os
+from pathlib import Path
+
 from config import cfg
 from soft_robot.engine import Engine
 from soft_robot.sw_engine import SwEngine
@@ -34,30 +36,37 @@ def parse_args():
 def main():
     cfg, config_file = parse_args()
     cfg.freeze()
-    ####### check all the parameter settings #######
+
+    # check all the parameter settings
     logger.info("{}".format(cfg))
     logger.info("check mode - {}".format(cfg.mode.mode))
+
     # Create directory for logs and experiment name
-    if not os.path.exists(cfg.train.log_directory):
-        os.mkdir(cfg.train.log_directory)
-    if not os.path.exists(os.path.join(cfg.train.log_directory, cfg.train.model_name)):
-        os.mkdir(os.path.join(cfg.train.log_directory, cfg.train.model_name))
-        os.mkdir(os.path.join(cfg.train.log_directory, cfg.train.model_name, 'summaries'))
+    mod_dir = Path(cfg.train.log_directory) / cfg.train.model_name / 'summaries'
+    if not mod_dir.exists():
+        mod_dir.mkdir(parents=True)
     else:
-        logger.warning('This logging directory already exists: {}. Over-writing current files'
-                       .format(os.path.join(cfg.train.log_directory, cfg.train.model_name)))
+        logger.warning(
+            'This logging directory already exists: {}. '
+            'Over-writing current files'.format(
+                Path(cfg.train.log_directory) / cfg.train.model_name
+            )
+        )
 
     if "smartwatch" in cfg.train.model_name:
-        # the smartwatch data set requires slightly adapted procedures
+        # the smartwatch data set requires a different engine
         train_engine = SwEngine(args=cfg, logger=logger)
+        if cfg.mode.mode == 'train':
+            train_engine.train_model()
+        elif cfg.mode.mode == 'test':
+            train_engine.test_model()
     else:
+        # the default engine
         train_engine = Engine(args=cfg, logger=logger)
-
-    ####### start the training #######
-    if cfg.mode.mode == 'train':
-        train_engine.train()
-    if cfg.mode.mode == 'test':
-        train_engine.online_test()
+        if cfg.mode.mode == 'train':
+            train_engine.train()
+        elif cfg.mode.mode == 'test':
+            train_engine.online_test()
 
 
 if __name__ == "__main__":
