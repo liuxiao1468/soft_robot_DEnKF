@@ -669,7 +669,7 @@ class EnsembleKfNoAction(nn.Module):
 
         # TODO: you might want to centralize where the device gets assigned
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        mask = torch.from_numpy(np.ones((30, 128)))
+        mask = torch.from_numpy(np.ones((input_size, 128))).to(torch.float32)
         self.__mask = mask.to(device)
 
     def forward(self, state_old_ens, raw_obs):
