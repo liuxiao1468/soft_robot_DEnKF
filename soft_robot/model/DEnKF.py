@@ -312,12 +312,12 @@ class BayesianSensorModel(nn.Module):
     output ->  [batch_size, num_ensemble, dim_z]
     """
 
-    def __init__(self, num_ensemble, dim_z):
+    def __init__(self, num_ensemble, dim_z, input_size=30):
         super(BayesianSensorModel, self).__init__()
         self.dim_z = dim_z
         self.num_ensemble = num_ensemble
 
-        self.mc_layer = MCLayer(30, 128)
+        self.mc_layer = MCLayer(input_size, 128)
         self.fc2 = nn.Linear(128, 512)
         self.fc3 = LinearFlipout(512, 1024)
         self.fc4 = LinearFlipout(1024, 2048)
@@ -653,15 +653,10 @@ class EnsembleKfNoAction(nn.Module):
     The forward pass of this one expects fewer inputs, returns fewer outputs, and ignores masking.
     """
 
-    def __init__(self, num_ensemble, dim_x, dim_z):
+    def __init__(self, num_ensemble, dim_x, dim_z, input_size):
         super(EnsembleKfNoAction, self).__init__()
 
         self.__num_ensemble = num_ensemble
-
-        # we don't remove modalities during training
-        # therefore, no mask (everything 1)
-        mask = torch.from_numpy(np.ones((30, 128)))
-        self.__mask = mask.to(self.__device)
 
         # instantiate models
         self.__process_model = ProcessModel(num_ensemble=num_ensemble, dim_x=dim_x)
@@ -670,11 +665,23 @@ class EnsembleKfNoAction(nn.Module):
         r_diag = np.ones(dim_z) * 0.1
         r_diag = r_diag.astype(np.float32)
         self.__observation_noise = ObservationNoise(dim_z=dim_z, r_diag=r_diag)
-        self.__sensor_model = BayesianSensorModel(num_ensemble=num_ensemble, dim_z=dim_z)
+        self.__sensor_model = BayesianSensorModel(num_ensemble=num_ensemble, dim_z=dim_z, input_size=input_size)
 
-    def forward(self, state_old, raw_obs):
+        # TODO: you might want to centralize where the device gets assigned
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        mask = torch.from_numpy(np.ones((30, 128)))
+        self.__mask = mask.to(device)
+
+    def forward(self, state_old_ens, raw_obs):
+        """
+        Args:
+            state_old_ens: ensemble of old state
+            raw_obs: raw observations for sensor model
+        Returns:
+        """
+
         ##### prediction step #####
-        state_pred = self.__process_model(state_old)
+        state_pred = self.__process_model(state_old_ens)
         m_A = torch.mean(state_pred, axis=1)
         mean_A = repeat(m_A, "bs dim -> bs k dim", k=self.__num_ensemble)
         A = state_pred - mean_A
@@ -691,6 +698,8 @@ class EnsembleKfNoAction(nn.Module):
         H_AT = rearrange(H_A, "bs k dim -> bs dim k")
 
         # get learned observation
+        # we don't remove modalities during training
+        # therefore, no mask (everything 1)
         ensemble_z, z, encoding = self.__sensor_model(raw_obs, self.__mask)
         y = rearrange(ensemble_z, "bs k dim -> bs dim k")
         R = self.__observation_noise(encoding)
@@ -717,6 +726,22 @@ class EnsembleKfNoAction(nn.Module):
             H_X_mean.to(dtype=torch.float32),
         )
         return output
+
+    @property
+    def process_model(self):
+        return self.__process_model
+
+    @property
+    def sensor_model(self):
+        return self.__sensor_model
+
+    @property
+    def observation_model(self):
+        return self.__observation_model
+
+    @property
+    def observation_noise(self):
+        return self.__observation_noise
 
 ############ only for testing ############
 # r_diag = np.ones((2)).astype(np.float32) * 0.1

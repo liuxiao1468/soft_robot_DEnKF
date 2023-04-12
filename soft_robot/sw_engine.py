@@ -1,4 +1,3 @@
-import logging
 import os
 import time
 import pickle
@@ -10,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 
 from soft_robot.dataset.sw_dataset import SmartwatchDataset
-from soft_robot.model.DEnKF import Ensemble_KF_no_action, EnsembleKfNoAction
+from soft_robot.model.DEnKF import EnsembleKfNoAction
 from soft_robot.optimizer.lr_scheduler import build_lr_scheduler
 from soft_robot.optimizer.optimizer import build_optimizer
 
@@ -33,7 +32,8 @@ class SwEngine:
         self.__model = EnsembleKfNoAction(
             num_ensemble=args.train.num_ensemble,
             dim_x=args.train.dim_x,
-            dim_z=args.train.dim_z
+            dim_z=args.train.dim_z,
+            input_size=args.train.input_size
         )
 
         # Check model type
@@ -50,52 +50,50 @@ class SwEngine:
             f"./experiments/{self.__args.train.model_name}/summaries"
         )
 
-    def test(self):
-        # Load the pretrained model
-        # checkpoint = torch.load(self.args.test.checkpoint_path)
-        # self.model.load_state_dict(checkpoint['model'])
-
-        test_dataset = SmartwatchDataset(self.__args.test.data_path)
-        test_dataloader = DataLoader(
-            test_dataset, batch_size=1, shuffle=False, num_workers=1
+        # prepare data sets such that they only have to load once
+        self.__test_dataset = SmartwatchDataset(
+            dataset_path=self.__args.test.data_path,
+            num_ensemble=self.__args.test.num_ensemble,
+            dim_x=self.__args.test.dim_x,
+            dim_z=self.__args.test.dim_z
         )
+        self.__train_dataset = SmartwatchDataset(
+            dataset_path=self.__args.train.data_path,
+            num_ensemble=self.__args.train.num_ensemble,
+            dim_x=self.__args.train.dim_x,
+            dim_z=self.__args.train.dim_z
+        )
+
+    def test(self):
+
+        test_dataloader = DataLoader(self.__test_dataset, batch_size=1, shuffle=False)
+
         step = 0
         data = {}
         data_save = []
         ensemble_save = []
         gt_save = []
         obs_save = []
-        for (
-                state_gt,
-                state_pre,
-                obs,
-                action,
-                state_ensemble,
-                sample_freq,
-        ) in test_dataloader:
+
+        # set model to evaluation mode before the predictions
+        self.__model.eval()
+
+        last_ensemble, state = None, None
+        for state_gt, state_pre_ens, obs in test_dataloader:
             state_gt = state_gt.to(self.__device)
-            state_pre = state_pre.to(self.__device)
+            state_pre_ens = state_pre_ens.to(self.__device)
             obs = obs.to(self.__device)
-            action = action.to(self.__device)
-            state_ensemble = state_ensemble.to(self.__device)
-            sample_freq = sample_freq.to(self.__device)
+
+            if last_ensemble is None:
+                last_ensemble = state_pre_ens
 
             with torch.no_grad():
-                if step == 0:
-                    ensemble = state_ensemble
-                    state = state_pre
-                else:
-                    ensemble = ensemble
-                    state = state
-                input_state = (ensemble, state)
-                obs_action = (action, obs, sample_freq)
-                output = self.__model(obs_action, input_state, self.__mask)
-
-                ensemble = output[0]  # -> ensemble estimation
+                output = self.__model(state_old=last_ensemble, raw_obs=obs)
+                last_ensemble = output[0]  # -> ensemble estimation
                 state = output[1]  # -> final estimation
                 obs_p = output[3]  # -> learned observation
 
-                final_ensemble = ensemble  # -> make sure these variables are tensor
+                final_ensemble = last_ensemble  # -> make sure these variables are tensor
                 final_est = state
                 obs_est = obs_p
 
@@ -124,15 +122,75 @@ class SwEngine:
         with open(save_path, "wb") as f:
             pickle.dump(data, f)
 
+    # @TODO: needs more work but is not in use yet
+    def online_test(self):
+
+        self.__model.eval()
+
+        test_dataloader = torch.utils.data.DataLoader(self.__test_dataset, batch_size=1, shuffle=False)
+
+        step = 0
+        data = {}
+        data_save = []
+        ensemble_save = []
+        gt_save = []
+        obs_save = []
+        ensemble = None
+        for state_gt, state_pre_ens, obs in test_dataloader:
+            state_gt = state_gt.to(self.__device)
+            state_pre_ens = state_pre_ens.to(self.__device)
+            obs = obs.to(self.__device)
+
+            with torch.no_grad():
+                if ensemble is None:
+                    ensemble = state_pre_ens
+                output = self.__model(state_old=ensemble, raw_obs=obs)
+                ensemble = output[0]  # -> ensemble estimation
+                state = output[1]  # -> final estimation
+                obs_p = output[3]  # -> learned observation
+                if step % 1000 == 0:
+                    print("===============")
+                    print(state)
+                    print(obs_p)
+                    print(state_gt)
+                    print(output[2])
+
+                final_ensemble = ensemble  # -> make sure these variables are tensor
+                final_est = state
+                obs_est = obs_p
+
+                final_ensemble = final_ensemble.cpu().detach().numpy()
+                final_est = final_est.cpu().detach().numpy()
+                obs_est = obs_est.cpu().detach().numpy()
+                state_gt = state_gt.cpu().detach().numpy()
+
+                data_save.append(final_est)
+                ensemble_save.append(final_ensemble)
+                gt_save.append(state_gt)
+                obs_save.append(obs_est)
+                step = step + 1
+
+        data["state"] = data_save
+        data["ensemble"] = ensemble_save
+        data["gt"] = gt_save
+        data["observation"] = obs_save
+
+        save_path = os.path.join(
+            self.__args.train.eval_summary_directory,
+            self.__args.train.model_name,
+            "test-result-{}.pkl".format("52"),
+        )
+
+        with open(save_path, "wb") as f:
+            pickle.dump(data, f)
+
     def train(self):
 
-        # create training DataLoader from config params
         batch_size = self.__args.train.batch_size
-        dat = SmartwatchDataset(self.__args.train.data_path)
-        dataloader = DataLoader(dat, batch_size=batch_size, shuffle=True)
+        train_data_loader = DataLoader(self.__train_dataset, batch_size=batch_size, shuffle=True)
 
         pytorch_total_params = sum(p.numel() for p in self.__model.parameters() if p.requires_grad)
-        self.__logger.info("Total number of parameters: ", pytorch_total_params)
+        self.__logger.info("Total number of parameters: {}".format(pytorch_total_params))
 
         # Create optimizer
         optimizer = build_optimizer(
@@ -150,7 +208,7 @@ class SwEngine:
         )
 
         # Create LR scheduler
-        num_total_steps = self.__args.train.num_epochs * len(dataloader)
+        num_total_steps = self.__args.train.num_epochs * len(train_data_loader)
         scheduler = build_lr_scheduler(
             optimizer,
             self.__args.optim.lr_scheduler,
@@ -163,7 +221,7 @@ class SwEngine:
         mse_criterion = torch.nn.MSELoss()
 
         # Epoch calculations
-        steps_per_epoch = len(dataloader)
+        steps_per_epoch = len(train_data_loader)
         epoch = self.__global_step // steps_per_epoch
         duration = 0
 
@@ -174,9 +232,14 @@ class SwEngine:
         while epoch < self.__args.train.num_epochs:
             step = 0
 
-            for state_gt, state_pre, obs in dataloader:
+            # ensure model is in training mode
+            self.__model.train()
+
+            for state_gt, state_pre_ens, obs in train_data_loader:
+
+                # move all to GPU
                 state_gt = state_gt.to(self.__device)
-                state_pre = state_pre.to(self.__device)
+                state_pre_ens = state_pre_ens.to(self.__device)
                 obs = obs.to(self.__device)
 
                 # define the training curriculum
@@ -184,10 +247,7 @@ class SwEngine:
                 before_op_time = time.time()
 
                 # forward pass
-                input_state = (state_ensemble, state_pre)
-                obs_action = (action, obs, sample_freq)
-                output = self.__model(obs_action, input_state, self.__mask)
-
+                output = self.__model(state_old_ens=state_pre_ens, raw_obs=obs)
                 final_est = output[1]  # -> final estimation
                 inter_est = output[2]  # -> state transition output
                 obs_est = output[3]  # -> learned observation
@@ -272,96 +332,7 @@ class SwEngine:
                     and (epoch + 1) % self.__args.train.eval_freq == 0
             ):
                 time.sleep(0.1)
-                self.__model.eval()
                 self.test()
-                self.__model.train()
 
             # Update epoch
             epoch += 1
-
-    def online_test(self):
-        # Load the pretrained model
-        if torch.cuda.is_available():
-            checkpoint = torch.load(self.__args.test.checkpoint_path)
-            self.__model.load_state_dict(checkpoint["model"])
-        else:
-            checkpoint = torch.load(
-                self.__args.test.checkpoint_path, map_location=torch.device("cpu")
-            )
-            self.__model.load_state_dict(checkpoint["model"])
-        self.__model.eval()
-
-        test_dataset = SmartwatchDataset(self.__args, "test")
-        test_dataloader = torch.utils.data.DataLoader(
-            test_dataset, batch_size=1, shuffle=False, num_workers=1
-        )
-        step = 0
-        data = {}
-        data_save = []
-        ensemble_save = []
-        gt_save = []
-        obs_save = []
-        for (
-                state_gt,
-                state_pre,
-                obs,
-                action,
-                state_ensemble,
-                sample_freq,
-        ) in test_dataloader:
-            state_gt = state_gt.to(self.__device)
-            state_pre = state_pre.to(self.__device)
-            obs = obs.to(self.__device)
-            action = action.to(self.__device)
-            state_ensemble = state_ensemble.to(self.__device)
-            sample_freq = sample_freq.to(self.__device)
-
-            with torch.no_grad():
-                if step == 0:
-                    ensemble = state_ensemble
-                    state = state_pre
-                else:
-                    ensemble = ensemble
-                    state = state
-                input_state = (ensemble, state)
-                obs_action = (action, obs, sample_freq)
-                output = self.__model(obs_action, input_state, self.__mask)
-
-                ensemble = output[0]  # -> ensemble estimation
-                state = output[1]  # -> final estimation
-                obs_p = output[3]  # -> learned observation
-                if step % 1000 == 0:
-                    print("===============")
-                    print(state)
-                    print(obs_p)
-                    print(state_gt)
-                    print(output[2])
-
-                final_ensemble = ensemble  # -> make sure these variables are tensor
-                final_est = state
-                obs_est = obs_p
-
-                final_ensemble = final_ensemble.cpu().detach().numpy()
-                final_est = final_est.cpu().detach().numpy()
-                obs_est = obs_est.cpu().detach().numpy()
-                state_gt = state_gt.cpu().detach().numpy()
-
-                data_save.append(final_est)
-                ensemble_save.append(final_ensemble)
-                gt_save.append(state_gt)
-                obs_save.append(obs_est)
-                step = step + 1
-
-        data["state"] = data_save
-        data["ensemble"] = ensemble_save
-        data["gt"] = gt_save
-        data["observation"] = obs_save
-
-        save_path = os.path.join(
-            self.__args.train.eval_summary_directory,
-            self.__args.train.model_name,
-            "test-result-{}.pkl".format("52"),
-        )
-
-        with open(save_path, "wb") as f:
-            pickle.dump(data, f)

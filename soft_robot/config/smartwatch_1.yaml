@@ -13,7 +13,7 @@ train:
   seed: 0
   model_name: 'smartwatch_1'
   dataset: 'tensegrity'
-  input_size: 30
+  input_size: 25
   data_path: '/home/fabian/Documents/code/PredictiveBiomechanics/merge_data/data_deploy/kalman_data/train_D_HAND_KALMAN_T'
   batch_size: 64
   num_epochs: 50
