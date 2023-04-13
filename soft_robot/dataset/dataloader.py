@@ -77,10 +77,17 @@ class utils:
         sampler = MultivariateNormal(mean, cov)
         return sampler.sample((k,))
 
-    def format_state(self, state):
+    def format_state(self, state, noise: float = 0.05):
+        """
+        Creates an ensemble from a given state and adds noise.
+        Args:
+            state: given state
+            noise: affects noise added to every state of the ensemble
+        Returns: ensemble
+        """
         state = repeat(state, "k dim -> n k dim", n=self.num_ensemble)
         state = rearrange(state, "n k dim -> (n k) dim")
-        cov = torch.eye(self.dim_x) * 0.05
+        cov = torch.eye(self.dim_x) * noise
         init_dist = self.multivariate_normal_sampler(
             torch.zeros(self.dim_x), cov, self.num_ensemble
         )
@@ -177,7 +184,6 @@ class tensegrityDataset(Dataset):
         sample_freq = repeat(sample_freq, "dim -> n dim", n=self.num_ensemble)
 
         return state_gt, state_pre, obs, action, state_ensemble, sample_freq
-
 
 ############ only for testing ############
 # if __name__ == '__main__':

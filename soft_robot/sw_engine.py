@@ -5,6 +5,7 @@ from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 
+from soft_robot.config import cfg
 from soft_robot.dataset.sw_dataset import SmartwatchDataset
 from soft_robot.model.DEnKF import EnsembleKfNoAction
 from soft_robot.optimizer.lr_scheduler import build_lr_scheduler
@@ -50,23 +51,81 @@ class SwEngine:
             self.__model.cuda()
 
         # tensorboard writer
-        tb_path = Path(args.train.log_directory) / "tensorboard"
+        tb_path = Path(args.train.log_directory) / args.train.model_name / "tensorboard"
         tb_path.mkdir(parents=True, exist_ok=True)
         self.__tb_writer = SummaryWriter(tb_path)
 
         # prepare data sets such that they only have to load once
-        self.__test_dataset = SmartwatchDataset(
-            dataset_path=args.test.data_path,
-            num_ensemble=args.test.num_ensemble,
-            dim_x=args.test.dim_x,
-            dim_z=args.test.dim_z
-        )
         self.__train_dataset = SmartwatchDataset(
             dataset_path=args.train.data_path,
             num_ensemble=args.train.num_ensemble,
             dim_x=args.train.dim_x,
             dim_z=args.train.dim_z
         )
+        self.__test_dataset = SmartwatchDataset(
+            dataset_path=args.test.data_path,
+            num_ensemble=args.test.num_ensemble,
+            dim_x=args.test.dim_x,
+            dim_z=args.test.dim_z
+        )
+        self.__eval_dataset = SmartwatchDataset(
+            dataset_path=args.test.eval_data_path,
+            num_ensemble=args.test.num_ensemble,
+            dim_x=args.train.dim_x,
+            dim_z=args.train.dim_z
+        )
+
+    def eval_model(self, checkpoint_path=None):
+        """
+        evaluate the current model of this class on the dest data using the parameters from self.__args
+        """
+
+        if checkpoint_path is not None:
+            checkpoint = torch.load(checkpoint_path)
+            self.__model.load_state_dict(checkpoint["model"])
+            self.__logger.info("loaded model from {}".format(checkpoint_path))
+
+        # the eval test iterates one data set in sequential order
+        eval_dataloader = DataLoader(self.__eval_dataset, batch_size=1, shuffle=False)
+
+        # set model to evaluation mode before the predictions
+        self.__model.eval()
+
+        losses = []
+        ensemble_pred = None
+        step = 0
+        preds = []
+        gts = []
+        for state_gt, state_pre_ens, obs in eval_dataloader:
+            state_gt = state_gt.to(self.__device)
+            state_pre_ens = state_pre_ens.to(self.__device)
+            obs = obs.to(self.__device)
+
+            # only get the initial previous state, then use the predictions
+            if ensemble_pred is None:
+                ensemble_pred = state_pre_ens
+
+            with torch.no_grad():
+                output = self.__model(state_old_ens=ensemble_pred, raw_obs=obs)
+                state_pred = output[1]  # -> state estimation
+                ensemble_pred = output[0]  # -> ensemble estimation
+
+            # calculate loss
+            gt_xyz = state_gt[0, 0, :3]
+            gts.append(gt_xyz.cpu().numpy())
+            pr_xyz = state_pred[0, 0, :3]
+            preds.append(pr_xyz.cpu().numpy())
+
+            # euclidian distance
+            dist = torch.sqrt(torch.sum(torch.square(pr_xyz - gt_xyz)))
+            losses.append(dist.cpu().item())
+
+            # update step and verbose
+            step += 1
+            if step % 1000 == 0:
+                self.__logger.info("[eval]: [{}], loss: {:.12f}".format(step, np.mean(losses)))
+
+        return np.array(gts), np.array(preds)
 
     def test_model(self):
         """
@@ -173,7 +232,13 @@ class SwEngine:
                 loss_2 = mse_criterion(inter_est, state_gt)
                 loss_3 = mse_criterion(obs_est, state_gt)
                 loss_4 = mse_criterion(hx, state_gt)
-                final_loss = loss_1 + loss_2 + loss_3 + loss_4
+                if epoch <= 15:
+                    # train the sensor model first
+                    final_loss = loss_3
+                else:
+                    # end-to-end mode, now all models ar optimized
+                    final_loss = loss_1 + loss_2 + loss_3 + loss_4
+
                 if np.isnan(final_loss.cpu().item()):
                     raise UserWarning("NaN in loss occurred. Aborting training.")
 
@@ -207,7 +272,7 @@ class SwEngine:
                 # Save a model based of a chosen save frequency
                 if self.__global_step % self.__args.train.save_freq == 0:
                     save_path = Path(
-                        self.__args.train.log_directory) / self.__args.train.model_name / "final-model-{}".format(
+                        self.__args.train.log_directory) / self.__args.train.model_name / "checkpoint-{}".format(
                         self.__global_step)
                     checkpoint = {
                         "global_step": self.__global_step,

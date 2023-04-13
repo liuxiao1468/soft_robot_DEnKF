@@ -44,5 +44,5 @@ class SmartwatchDataset(Dataset):
         state_pre = rearrange(state_pre, "(k dim) -> k dim", k=1)
         obs = rearrange(obs, "(k dim) -> k dim", k=1)
 
-        state_ensemble = self.__utils.format_state(state_pre)
+        state_ensemble = self.__utils.format_state(state_pre, noise=0.02)
         return state_gt, state_ensemble, obs

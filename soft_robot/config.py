@@ -72,6 +72,7 @@ cfg.test.checkpoint_path = ''
 cfg.test.dataset = None
 cfg.test.eigen_crop = False  # crops according to Eigen NIPS14
 cfg.test.garg_crop = False  # crops according to Garg  ECCV16
+cfg.test.eval_data_path = './experiments/'
 
 cfg.network = CN()
 cfg.network.name = "DEnKF"
