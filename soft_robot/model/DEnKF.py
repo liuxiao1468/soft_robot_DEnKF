@@ -672,6 +672,15 @@ class EnsembleKfNoAction(nn.Module):
         mask = torch.from_numpy(np.ones((input_size, 128))).to(torch.float32)
         self.__mask = mask.to(device)
 
+    def initial_pred(self, raw_obs):
+        """
+        an initial prediction without a previous state ensemble
+        :param raw_obs:
+        :return: predicted state ensemble
+        """
+        ensemble_z, z, encoding = self.__sensor_model(raw_obs, self.__mask)
+        return ensemble_z
+
     def forward(self, state_old_ens, raw_obs):
         """
         Args:

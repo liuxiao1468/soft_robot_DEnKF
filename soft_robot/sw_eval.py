@@ -31,7 +31,7 @@ def parse_args():
 if __name__ == "__main__":
     parse_args()
 
-    checkpoint_path = Path(cfg.train.log_directory) / cfg.train.model_name / "checkpoint-260000"
+    checkpoint_path = Path(cfg.train.log_directory) / cfg.train.model_name / "checkpoint-980000"
 
     # the smartwatch data set requires a different engine
     train_engine = SwEngine(args=cfg, logger=logger)

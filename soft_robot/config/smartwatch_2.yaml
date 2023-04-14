@@ -9,7 +9,7 @@ train:
   input_size: 25
   num_ensemble: 32
   seed: 0
-  model_name: 'smartwatch_1'
+  model_name: 'smartwatch_2'
   data_path: '/home/fabian/Documents/code/PredictiveBiomechanics/merge_data/data_deploy/kalman_data/train_D_HAND_KALMAN_T'
   batch_size: 64
   num_epochs: 50
@@ -25,7 +25,7 @@ test:
   dim_z: 9
   input_size: 25
   num_ensemble: 32
-  model_name: 'smartwatch_1'
+  model_name: 'smartwatch_2'
   data_path: '/home/fabian/Documents/code/PredictiveBiomechanics/merge_data/data_deploy/kalman_data/test_D_HAND_KALMAN_T'
   eval_data_path: '/home/fabian/Documents/code/PredictiveBiomechanics/merge_data/data_deploy/kalman_data/eval_D_HAND_KALMAN_T'
 optim:

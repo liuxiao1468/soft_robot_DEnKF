@@ -21,8 +21,16 @@ class SmartwatchDataset(Dataset):
         self.__pre_state = torch.tensor(dat["pre_state"], dtype=torch.float32)
         self.__obs = torch.tensor(dat["obs"], dtype=torch.float32)
 
+        self.__xx_m = dat["xx_m"]
+        self.__xx_s = dat["xx_s"]
+        self.__yy_m = dat["yy_m"]
+        self.__yy_s = dat["yy_s"]
+
         # make use of the soft_robot utils class
         self.__utils = utils(num_ensemble, dim_x, dim_z)
+
+    def get_norm_stats(self):
+        return self.__xx_m, self.__xx_s, self.__yy_m, self.__yy_s
 
     def __len__(self):
         """

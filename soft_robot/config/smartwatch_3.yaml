@@ -1,0 +1,33 @@
+mode:
+  mode: 'train'
+  multiprocessing_distributed: False
+  num_threads: 1
+  do_online_eval: True
+train:
+  dim_x: 9
+  dim_z: 9
+  input_size: 22
+  num_ensemble: 32
+  seed: 0
+  model_name: 'smartwatch_3'
+  data_path: '/home/fabian/Documents/code/PredictiveBiomechanics/merge_data/data_deploy/kalman_data/train_KALMAN_KALMAN_T'
+  batch_size: 64
+  num_epochs: 150
+  learning_rate: 1e-4
+  weight_decay: 1e-2
+  adam_eps: 1e-3
+  log_freq: 1000
+  eval_freq: 20000
+  save_freq: 10000
+  log_directory: '/home/fabian/Documents/nns/kalman/'
+test:
+  dim_x: 9
+  dim_z: 9
+  input_size: 22
+  num_ensemble: 32
+  model_name: 'smartwatch_3'
+  data_path: '/home/fabian/Documents/code/PredictiveBiomechanics/merge_data/data_deploy/kalman_data/test_KALMAN_KALMAN_T'
+  eval_data_path: '/home/fabian/Documents/code/PredictiveBiomechanics/merge_data/data_deploy/kalman_data/eval_KALMAN_KALMAN_T'
+optim:
+  optim: 'adamw'
+  lr_scheduler: 'polynomial_decay'

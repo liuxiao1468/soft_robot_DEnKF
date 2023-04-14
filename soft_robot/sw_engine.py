@@ -88,37 +88,41 @@ class SwEngine:
         # the eval test iterates one data set in sequential order
         eval_dataloader = DataLoader(self.__eval_dataset, batch_size=1, shuffle=False)
 
+        # normalization stats
+        _, _, yy_m, yy_s = self.__eval_dataset.get_norm_stats()
+        yy_m = yy_m[:3]
+        yy_s = yy_s[:3]
+
         # set model to evaluation mode before the predictions
         self.__model.eval()
 
-        losses = []
         ensemble_pred = None
         step = 0
-        preds = []
-        gts = []
-        for state_gt, state_pre_ens, obs in eval_dataloader:
+        preds, gts, losses = [], [], []
+        for state_gt, _, obs in eval_dataloader:
             state_gt = state_gt.to(self.__device)
-            state_pre_ens = state_pre_ens.to(self.__device)
             obs = obs.to(self.__device)
 
             # only get the initial previous state, then use the predictions
             if ensemble_pred is None:
-                ensemble_pred = state_pre_ens
+                ensemble_pred = self.__model.initial_pred(raw_obs=obs)
 
             with torch.no_grad():
                 output = self.__model(state_old_ens=ensemble_pred, raw_obs=obs)
-                state_pred = output[1]  # -> state estimation
-                ensemble_pred = output[0]  # -> ensemble estimation
 
-            # calculate loss
-            gt_xyz = state_gt[0, 0, :3]
-            gts.append(gt_xyz.cpu().numpy())
-            pr_xyz = state_pred[0, 0, :3]
-            preds.append(pr_xyz.cpu().numpy())
+            state_pred = output[1]  # -> state estimation
+            ensemble_pred = output[0]  # -> ensemble estimation
+
+            # calculate loss and transform back to estimate actual distance
+            gt_xyz = state_gt[0, 0, :3].cpu().numpy() * yy_s + yy_m
+            pr_xyz = state_pred[0, 0, :3].cpu().numpy() * yy_s + yy_m
 
             # euclidian distance
-            dist = torch.sqrt(torch.sum(torch.square(pr_xyz - gt_xyz)))
-            losses.append(dist.cpu().item())
+            losses.append(np.linalg.norm(pr_xyz - gt_xyz))
+
+            # store ground truth and predictions
+            gts.append(gt_xyz)
+            preds.append(pr_xyz)
 
             # update step and verbose
             step += 1
