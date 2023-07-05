@@ -106,7 +106,7 @@ dPF-M-lrn are reproduced for detailed comparisons.
 | DEnKF | 31.519±9.974 | 25.777±7.827 | 0.062 |
 
 <p align="center">
-<img src = "img/test.gif" width ="800"/>
+<img src = "img/test.gif" width ="600"/>
 </p>
 The real-time estimation of the state on the tensegrity robot arm is demonstrated in this study. Specifically, the `left` figure presents a motion sequence of the robot without applying external forces, while the `right` figure showcases the real-time tracking outcomes (along with the corresponding uncertainty) of the positions of the hand tip.
 
