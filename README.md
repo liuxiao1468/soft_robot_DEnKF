@@ -61,27 +61,27 @@ Run `python train.py --config ./config/tensegrity_xx.yaml`
 
 
 ## Models
-### DEnKF
+### differentiable Ensemble Kalman Filters
 Extending prior works on DSSMs, this paper introduces
 a novel differentiable filter called differentiable Ensemble
 Kalman Filters (DEnKF), for modeling soft robots. It offers
 an end-to-end learning approach to estimate the state of the
 system, which is highly nonlinear and difficult to model
 analytically. The main contributions are:
-⋅⋅* The introduction of a positional embedding process that
-enables the spatial generalization of dEnKF by encoding
+- The introduction of a positional embedding process that
+enables the spatial generalization of DEnKF by encoding
 observations with respect to their positions. As a result,
 learned models can account for changes to the location
 of sensors on the robot body.
-⋅⋅* The use of a temporal embedding process that allows
-dEnKF to perform inference at variable rates and account
+- The use of a temporal embedding process that allows
+DEnKF to perform inference at variable rates and account
 for a multitude of time-delays due to sensing,
 hardware or communication.
-⋅⋅* The modular structure of the framework separates the
+- The modular structure of the framework separates the
 state dynamics from the end-to-end learning process,
 ensuring that the state remains dynamic even in the
 absence of observations.
-⋅⋅* The paper also demonstrates a downstream application
+- The paper also demonstrates a downstream application
 task of the of the framework for estimating human
 contact and physical interactions with the robot.
 
