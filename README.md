@@ -99,17 +99,20 @@ with fixed IMU locations Z. Results for dEKF, dPF, and
 dPF-M-lrn are reproduced for detailed comparisons.
 
 | Method    | RMSE | MAE | Wall clock time (s) |
-| -------- | ------- | -------- | ------- |
+| :------:| :------: | :------: | :------: |
 | dEKF  | 61.753±1.630 | 41.960±1.147 | 0.047 |
 | DPF | 51.184±7.204 | 34.317±4.205 | 0.060 |
 | dPF-M-lrn | 49.799±8.264 | 33.903±6.964 | 0.059 |
 | DEnKF | 31.519±9.974 | 25.777±7.827 | 0.062 |
 
 <p align="center">
-<img src = "img/test.gif" width ="800" />
+<img src = "img/test.gif" width ="800"/>
 </p>
 The real-time estimation of the state on the tensegrity robot arm is demonstrated in this study. Specifically, the `left` figure presents a motion sequence of the robot without applying external forces, while the `right` figure showcases the real-time tracking outcomes (along with the corresponding uncertainty) of the positions of the hand tip.
 
-## Model Zoo
+## Citation
+* Please cite the paper if you used any materials from this repo, Thanks.
+```
 TBD
+```
 
