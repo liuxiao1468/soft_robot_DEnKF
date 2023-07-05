@@ -98,14 +98,14 @@ task measured in RMSE and MAE of the EE position
 with fixed IMU locations Z. Results for dEKF, dPF, and
 dPF-M-lrn are reproduced for detailed comparisons.
 
-<div align="center">
+<p align="center">
 | Method    | RMSE | MAE | Wall clock time (s) |
 | :------:| :------: | :------: | :------: |
 | dEKF  | 61.753±1.630 | 41.960±1.147 | 0.047 |
 | DPF | 51.184±7.204 | 34.317±4.205 | 0.060 |
 | dPF-M-lrn | 49.799±8.264 | 33.903±6.964 | 0.059 |
 | DEnKF | 31.519±9.974 | 25.777±7.827 | 0.062 |
-</div>
+</p>
 
 <p align="center">
 <img src = "img/test.gif" width ="600"/>
