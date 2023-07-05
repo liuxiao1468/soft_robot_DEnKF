@@ -62,6 +62,37 @@ Run `python train.py --config ./config/tensegrity_xx.yaml`
 
 ## Models
 ### DEnKF
+Extending prior works on DSSMs, this paper introduces
+a novel differentiable filter called differentiable Ensemble
+Kalman Filters (DEnKF), for modeling soft robots. It offers
+an end-to-end learning approach to estimate the state of the
+system, which is highly nonlinear and difficult to model
+analytically. The main contributions are:
+⋅⋅* The introduction of a positional embedding process that
+enables the spatial generalization of dEnKF by encoding
+observations with respect to their positions. As a result,
+learned models can account for changes to the location
+of sensors on the robot body.
+⋅⋅* The use of a temporal embedding process that allows
+dEnKF to perform inference at variable rates and account
+for a multitude of time-delays due to sensing,
+hardware or communication.
+⋅⋅* The modular structure of the framework separates the
+state dynamics from the end-to-end learning process,
+ensuring that the state remains dynamic even in the
+absence of observations.
+⋅⋅* The paper also demonstrates a downstream application
+task of the of the framework for estimating human
+contact and physical interactions with the robot.
+
+
+
+## Datasets
+#### Tensegrity_dataset
+Ask IKemoto-san for the dataset of the soft robot (ikemoto@brain.kyutech.ac.jp)
+
+
+## Results
 Comparison with other baselines on state estimation
 task measured in RMSE and MAE of the EE position
 with fixed IMU locations Z. Results for dEKF, dPF, and
@@ -74,17 +105,10 @@ dPF-M-lrn are reproduced for detailed comparisons.
 | dPF-M-lrn | 49.799±8.264 | 33.903±6.964 | 0.059 |
 | DEnKF | 31.519±9.974 | 25.777±7.827 | 0.062 |
 
-
-## Datasets
-#### Tensegrity_dataset
-Ask IKemoto-san for the dataset of the soft robot (ikemoto@brain.kyutech.ac.jp)
-
-
-## Results
 <p align="center">
 <img src = "img/test.gif" width ="800" />
 </p>
-The real-time estimation of the state on the tensegrity robot arm is demonstrated in this study. Specifically, the `feft` figure presents a motion sequence of the robot without applying external forces, while the `right` figure showcases the real-time tracking outcomes (along with the corresponding uncertainty) of the positions of the hand tip.
+The real-time estimation of the state on the tensegrity robot arm is demonstrated in this study. Specifically, the `left` figure presents a motion sequence of the robot without applying external forces, while the `right` figure showcases the real-time tracking outcomes (along with the corresponding uncertainty) of the positions of the hand tip.
 
 ## Model Zoo
 TBD
