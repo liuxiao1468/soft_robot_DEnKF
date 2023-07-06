@@ -8,7 +8,7 @@ This repository is the official implementation of the paper "Learning Soft Robot
 ## Getting Started
 #### docker workflow
 
-Clone the repo `git clone https://github.com/liuxiao1468/soft_robot_torch_filter.git`
+Clone the repo `git clone https://github.com/liuxiao1468/soft_robot_DEnKF.git`
 
 #### Set the environment variables
 Edit the `conf.sh` file to set the environment variables used to start the docker 
