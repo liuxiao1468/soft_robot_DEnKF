@@ -1,5 +1,5 @@
-# soft_robot_torch_filter
-This paper introduces a novel approach for modeling the dynamics of soft robots, utilizing a differentiable filter architecture. The proposed approach enables end-to-end training to learn system dynamics, noise characteristics, and temporal behavior of the robot. A novel spatio-temporal embedding process is discussed to handle observations with varying sensor placements and sampling frequencies. The efficacy of this approach is demonstrated on a tensegrity robot arm by learning end-effector dynamics from demonstrations with complex bending motions. The model is proven to be robust against missing modalities, diverse sensor placement, and varying sampling rates. Additionally, the proposed framework is shown to identify physical interactions with humans during motion. The utilization of a differentiable filter presents a novel solution to the difficulties of modeling soft robot dynamics. Our approach shows substantial improvement in accuracy compared to state-of-the-art filtering methods, with at least a 24% reduction in mean absolute error (MAE) observed. Furthermore, the predicted end-effector positions show an average MAE of 25.77mm from the ground truth, highlighting the advantage of our approach. 
+# soft_robot_DEnKF
+This repository is the official implementation of the paper "Learning Soft Robot Dynamics using Differentiable Kalman Filters and Spatio-Temporal Embeddings", which has been accepted to 2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS 2023)
 
 <p align="center">
 <img src = "img/overview_new.png" width ="600" />
@@ -62,7 +62,7 @@ Run `python train.py --config ./config/tensegrity_xx.yaml`
 
 ## Models
 ### differentiable Ensemble Kalman Filters
-Extending prior works on DSSMs, this paper introduces
+This project introduces
 a novel differentiable filter called differentiable Ensemble
 Kalman Filters (DEnKF), for modeling soft robots. It offers
 an end-to-end learning approach to estimate the state of the
